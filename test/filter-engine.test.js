@@ -1,0 +1,10 @@
+'use strict';
+var path = require('path');
+var FILTER = require(path.join(__dirname, '..', 'js', 'filter-engine.js'));
+test('OPERATORS has 15 items', function () { assertEqual(FILTER.OPERATORS.length, 15); });
+test('Equals quoting', function () { assertEqual(FILTER.buildConditionSql({ table: 'T', column: 'C', operator: 'eq', value: '100' }, 'Generic', []), 'T.C = 100'); });
+test('Text quoting', function () { assertEqual(FILTER.buildConditionSql({ column: 'C', operator: 'eq', value: 'x' }, 'Generic', []), "C = 'x'"); });
+test('Contains/Starts/Ends', function () { assertEqual(FILTER.buildConditionSql({ column: 'N', operator: 'contains', value: 'a' }, 'Generic', []), "N LIKE '%a%'"); });
+test('Between requires two values', function () { assertEqual(FILTER.buildConditionSql({ column: 'A', operator: 'between', value: '1', value2: '5' }, 'Generic', []), 'A BETWEEN 1 AND 5'); var errors = []; assertEqual(FILTER.buildConditionSql({ column: 'A', operator: 'between', value: '1', value2: '' }, 'Generic', errors), null); assertTrue(errors.length === 1); });
+test('buildWhereSql joins AND/OR', function () { var g = { conditions: [FILTER.newCondition({ column: 'A', operator: 'eq', value: '1' }), FILTER.newCondition({ column: 'B', operator: 'eq', value: '2', join: 'OR' })] }; assertEqual(FILTER.buildWhereSql(g, 'Generic').sql, 'A = 1 OR B = 2'); });
+test('empty group isEmpty', function () { assertTrue(FILTER.buildWhereSql({ conditions: [] }, 'Generic').isEmpty); });

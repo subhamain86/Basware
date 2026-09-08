@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AP-SQL Assistant · Version 10.1</title>
-<meta name="description" content="Schema-aware, read-only and Change Request SQL generator, with data-type-aware Decode, an Error Rectifier, and description-driven query building.">
+<title>AP-SQL Assistant · Version 10.2</title>
+<meta name="description" content="Schema-aware, read-only and Change Request SQL generator, with data-type-aware Decode, an Error Rectifier, description-driven query building, and cross-device schema sync.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,7 +14,6 @@
 </head>
 <body>
 
-<!-- ==================== Top bar ("menu bar") — frozen at all times ==================== -->
 <nav class="navbar border-bottom bg-body fixed-top" id="mainNavbar">
   <div class="container-fluid">
     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#mainMenu" data-tour="hamburger" aria-label="Open menu"><i class="bi bi-list fs-5"></i></button>
@@ -23,12 +22,8 @@
         <span class="app-logo-badge">
           <svg class="app-logo-svg" width="34" height="34" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AP-SQL Assistant 3D database logo">
             <defs>
-              <linearGradient id="cylBodyNav" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#bcd2ff"/><stop offset="100%" stop-color="#123a8a"/>
-              </linearGradient>
-              <radialGradient id="cylTopNav" cx="35%" cy="30%" r="75%">
-                <stop offset="0%" stop-color="#ffffff"/><stop offset="55%" stop-color="#cfe0ff"/><stop offset="100%" stop-color="#7ea4ff"/>
-              </radialGradient>
+              <linearGradient id="cylBodyNav" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#bcd2ff"/><stop offset="100%" stop-color="#123a8a"/></linearGradient>
+              <radialGradient id="cylTopNav" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#ffffff"/><stop offset="55%" stop-color="#cfe0ff"/><stop offset="100%" stop-color="#7ea4ff"/></radialGradient>
             </defs>
             <ellipse cx="32" cy="52" rx="25" ry="8" fill="#0d1b3f" opacity="0.32"/>
             <path d="M56 14 V50 A24 8 0 0 1 8 50 V14 Z" fill="url(#cylBodyNav)"/>
@@ -51,7 +46,6 @@
   </div>
 </nav>
 
-<!-- ==================== Hamburger offcanvas menu ==================== -->
 <div class="offcanvas offcanvas-start" tabindex="-1" id="mainMenu">
   <div class="offcanvas-header">
     <h5 class="offcanvas-title d-flex align-items-center gap-2"><i class="bi bi-list fs-5"></i> Menu</h5>
@@ -85,11 +79,9 @@
         <span class="menu-item-label"><span class="icon-badge icon-badge-sm badge-pink"><i class="bi bi-cloud-arrow-up-fill"></i></span><span>Update Schema</span></span>
       </button>
     </div>
-
     <button class="nav-link text-start" data-view="errorrectifier" type="button">
       <span class="menu-item-label"><span class="icon-badge badge-cyan"><i class="bi bi-magic"></i></span><span>Error Rectifier</span></span>
     </button>
-
     <div class="menu-submenu-toggle" id="themeMenuToggle">
       <span class="menu-item-label"><span class="icon-badge badge-purple"><i class="bi bi-palette-fill"></i></span><span>Theme</span></span>
       <span class="chevron">&#8250;</span>
@@ -107,19 +99,14 @@
 
 <div class="container-fluid py-3" style="max-width:1180px;">
 
-  <!-- ==================== Quick Start ==================== -->
   <section class="app-view active" id="view-quickstart">
     <div class="hero-brand-row mb-3">
       <span class="logo-3d-wrap">
         <span class="app-logo-badge app-logo-badge-lg">
           <svg class="app-logo-svg" width="56" height="56" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AP-SQL Assistant 3D database logo">
             <defs>
-              <linearGradient id="cylBodyHero" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#bcd2ff"/><stop offset="100%" stop-color="#123a8a"/>
-              </linearGradient>
-              <radialGradient id="cylTopHero" cx="35%" cy="30%" r="75%">
-                <stop offset="0%" stop-color="#ffffff"/><stop offset="55%" stop-color="#cfe0ff"/><stop offset="100%" stop-color="#7ea4ff"/>
-              </radialGradient>
+              <linearGradient id="cylBodyHero" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#bcd2ff"/><stop offset="100%" stop-color="#123a8a"/></linearGradient>
+              <radialGradient id="cylTopHero" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#ffffff"/><stop offset="55%" stop-color="#cfe0ff"/><stop offset="100%" stop-color="#7ea4ff"/></radialGradient>
             </defs>
             <ellipse cx="32" cy="52" rx="25" ry="8" fill="#0d1b3f" opacity="0.32"/>
             <path d="M56 14 V50 A24 8 0 0 1 8 50 V14 Z" fill="url(#cylBodyHero)"/>
@@ -131,7 +118,7 @@
       </span>
       <div>
         <h1 class="h3 builder-heading mb-0">Welcome — what does this tool do?</h1>
-        <div class="text-body-secondary small">AP-SQL Assistant · Version 10.1</div>
+        <div class="text-body-secondary small">AP-SQL Assistant · Version 10.2</div>
       </div>
     </div>
     <p class="text-body-secondary">
@@ -140,6 +127,7 @@
       organization's approved database schema as its single source of truth, and helps you
       <strong>correct a SQL query</strong> when a database gives you back an error. You can build a query
       either by describing what you need in plain language, by making selections manually, or both together.
+      Schema updates can also now be synced across browsers, devices, and users by linking a shared file.
       It never connects to a real database and never executes anything; it only ever produces SQL text for
       you to review and copy.
     </p>
@@ -161,7 +149,7 @@
         <div class="card h-100 border-warning-subtle">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-orange me-2"><i class="bi bi-pencil-square"></i></span>Query Builder for CR <span class="badge text-bg-warning-subtle text-warning-emphasis">CR</span></h3>
-            <p class="small text-body-secondary mb-2">Describe the change in plain language (e.g. "update the invoice status to 40 where invoice id is 123") and click Build Query, or use the manual controls — with the same schema, filters and decode engine.</p>
+            <p class="small text-body-secondary mb-2">Describe the change in plain language and click Build Query, or use the manual controls — with the same schema, filters and decode engine.</p>
             <button class="btn btn-outline-warning btn-sm" data-view="crbuilder" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Query Builder for CR</button>
           </div>
         </div>
@@ -172,7 +160,7 @@
         <div class="card h-100 border-info-subtle">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-cyan me-2"><i class="bi bi-magic"></i></span>Error Rectifier <span class="badge text-bg-info-subtle text-info-emphasis">New in V10</span></h3>
-            <p class="small text-body-secondary mb-2">Paste a database error and the SQL that caused it — the Error Rectifier analyzes both against the active schema and the selected SQL dialect, and proposes a corrected query with a plain-language explanation.</p>
+            <p class="small text-body-secondary mb-2">Paste a database error and the SQL that caused it — the Error Rectifier analyzes both against the active schema and proposes a corrected query with a plain-language explanation.</p>
             <button class="btn btn-outline-info btn-sm" data-view="errorrectifier" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Error Rectifier</button>
           </div>
         </div>
@@ -180,10 +168,8 @@
     </div>
   </section>
 
-  <!-- ==================== Read Only Query Builder ==================== -->
   <section class="app-view" id="view-builder">
     <h1 class="h4 builder-heading"><span class="icon-badge badge-blue"><i class="bi bi-eye-fill"></i></span>Read Only Query Builder</h1>
-
     <div class="builder-row mb-3">
       <div class="builder-col-half">
         <div class="card" data-tour="prompt">
@@ -195,7 +181,6 @@
               <select class="form-select form-select-sm w-auto" id="dialectSel"><option>SQL Server</option><option>Oracle</option><option>PostgreSQL</option><option>MySQL</option><option>Generic</option></select>
               <div class="form-check form-check-inline ms-2 mb-0"><input class="form-check-input" type="checkbox" id="optDistinct2"><label class="form-check-label small" for="optDistinct2">Remove duplicates</label></div>
             </div>
-            <!-- V10.1: Build Query can be triggered directly from the description card. This calls the EXACT SAME build routine as the persistent Build Query button below the tabs, so results are always identical regardless of which button is used. -->
             <div class="describe-action-row" data-tour="describe-build">
               <span class="describe-hint">Works from your description alone, your manual selections alone, or both together.</span>
               <button class="btn btn-primary btn-sm" id="generateFromDescriptionBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
@@ -218,27 +203,23 @@
         </div>
       </div>
     </div>
-
     <ul class="nav nav-tabs flex-wrap" id="manualTabs">
       <li class="nav-item"><button class="nav-link active" data-tab="tables" type="button"><i class="bi bi-table me-1"></i>Tables &amp; Columns</button></li>
       <li class="nav-item"><button class="nav-link" data-tab="advanced" type="button"><i class="bi bi-sliders me-1"></i>Advanced Options</button></li>
       <li class="nav-item"><button class="nav-link" data-tab="requirements" type="button"><i class="bi bi-clipboard-check me-1"></i>Selected / Described Requirements</button></li>
     </ul>
-
     <div class="tab-action-bar">
       <span class="text-body-secondary tab-action-hint">Configure your query using the tabs below, and/or use the description above, then build.</span>
       <button class="btn btn-primary btn-sm" id="generateBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
     </div>
-
     <div class="tab-content-wrap" data-tour="tabs">
-      <!-- Tables & Columns tab -->
       <div class="tab-pane-manual active" id="pane-tables">
         <div class="builder-row">
           <div class="builder-col-third">
             <div class="card">
               <div class="card-body">
                 <h2 class="h6"><span class="icon-badge icon-badge-sm badge-blue"><i class="bi bi-table"></i></span> Pick Tables</h2>
-                <p class="small text-body-secondary">Use the module dropdown to narrow things down. You can select any number of tables — see Advanced Options for how they'll be joined.</p>
+                <p class="small text-body-secondary">Use the module dropdown to narrow things down. You can select any number of tables.</p>
                 <div class="d-flex flex-wrap gap-2 mb-2">
                   <select class="form-select form-select-sm" id="moduleFilterSel"></select>
                   <input class="form-control form-control-sm" id="tableSearchInput" placeholder="Search tables...">
@@ -287,25 +268,20 @@
           </div>
         </div>
       </div>
-
-      <!-- Advanced Options tab -->
       <div class="tab-pane-manual d-none" id="pane-advanced">
         <div class="row g-3">
-
           <div class="col-12" id="joinOptionCard">
             <div class="card adv-option-card">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-indigo"><i class="bi bi-link-45deg"></i></span>How should tables be connected?</h3>
-                <p class="adv-option-explainer">This only appears because your query uses more than one table. Any number of tables can be joined at once. Choose what should happen if a record in one table doesn't have a matching record in another.</p>
+                <p class="adv-option-explainer">This only appears because your query uses more than one table.</p>
                 <label class="join-choice d-block" id="optJoinInnerLabel">
                   <input class="form-check-input me-2" type="radio" name="joinType" id="optJoinInner" value="INNER" checked>
                   <strong>Only show records that match in every table</strong>
-                  <span class="text-body-secondary small d-block ms-4">Recommended default. Nothing is dropped silently — if a table has no match, that combination simply won't appear.</span>
                 </label>
                 <label class="join-choice d-block" id="optJoinLeftLabel">
                   <input class="form-check-input me-2" type="radio" name="joinType" id="optJoinLeft" value="LEFT">
                   <strong>Also show records that don't have a match</strong>
-                  <span class="text-body-secondary small d-block ms-4">Useful for questions like "which suppliers have never had an invoice" — unmatched columns will show as empty.</span>
                 </label>
                 <button class="btn btn-outline-secondary btn-sm adv-reset-btn" id="joinResetBtn" type="button"><i class="bi bi-arrow-counterclockwise me-1"></i>Reset to default</button>
                 <hr>
@@ -316,12 +292,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-teal"><i class="bi bi-sort-down"></i></span>Choose how to order your results</h3>
-                <p class="adv-option-explainer">Pick one or more columns to control the order of your results. You can add as many sort columns as you need.</p>
                 <div id="sortRowsContainer"></div>
                 <div class="filter-group-toolbar mt-2">
                   <button class="btn btn-outline-primary btn-sm" id="addSortRowBtn" type="button"><i class="bi bi-plus-circle me-1"></i>Add Sort Column</button>
@@ -331,12 +305,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-blue"><i class="bi bi-list-ol"></i></span>Limit the number of results</h3>
-                <p class="adv-option-explainer">Only return the first however-many rows.</p>
                 <div class="d-flex gap-2 align-items-center">
                   <input class="form-control form-control-sm w-auto" id="optLimit" placeholder="e.g. 10" inputmode="numeric" style="max-width:140px;">
                   <button class="btn btn-outline-secondary btn-sm adv-reset-btn" id="optLimitClearBtn" type="button"><i class="bi bi-x-circle me-1"></i>Clear</button>
@@ -345,12 +317,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-purple"><i class="bi bi-bookmark-star-fill"></i></span>Give this query a friendly name</h3>
-                <p class="adv-option-explainer">Wrap your query so it can be referred to by a short name elsewhere.</p>
                 <div class="d-flex gap-2 align-items-center">
                   <input class="form-control form-control-sm" id="optView" placeholder="e.g. HighValueInvoices">
                   <button class="btn btn-outline-secondary btn-sm adv-reset-btn" id="optViewClearBtn" type="button"><i class="bi bi-x-circle me-1"></i>Clear</button>
@@ -359,12 +329,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-orange"><i class="bi bi-check2-circle"></i></span>Only show records connected to another table</h3>
-                <p class="adv-option-explainer">For example: only show suppliers that actually have invoices. Tick "Opposite" to find records that <em>don't</em> have a match instead.</p>
                 <div id="existsRowsContainer"></div>
                 <div class="filter-group-toolbar mt-2">
                   <button class="btn btn-outline-primary btn-sm" id="addExistsRowBtn" type="button"><i class="bi bi-plus-circle me-1"></i>Add Related Table</button>
@@ -374,12 +342,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-pink"><i class="bi bi-123"></i></span>Show a related count</h3>
-                <p class="adv-option-explainer">Add an extra column showing how many related records exist. You can add more than one related count.</p>
                 <div id="scalarRowsContainer"></div>
                 <div class="filter-group-toolbar mt-2">
                   <button class="btn btn-outline-primary btn-sm" id="addScalarRowBtn" type="button"><i class="bi bi-plus-circle me-1"></i>Add Count</button>
@@ -389,12 +355,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-green"><i class="bi bi-funnel"></i></span>Filter on a total (after grouping)</h3>
-                <p class="adv-option-explainer">Only useful together with a totals/grouped request. This filters the totals themselves, not individual rows.</p>
                 <div class="d-flex gap-2 align-items-center">
                   <input class="form-control form-control-sm" id="optHaving" placeholder="e.g. COUNT(*) > 5">
                   <button class="btn btn-outline-secondary btn-sm adv-reset-btn" id="optHavingClearBtn" type="button"><i class="bi bi-x-circle me-1"></i>Clear</button>
@@ -403,12 +367,10 @@
               </div>
             </div>
           </div>
-
           <div class="col-md-6">
             <div class="card adv-option-card h-100">
               <div class="card-body">
                 <h3 class="h6 adv-option-title"><span class="icon-badge icon-badge-sm badge-indigo"><i class="bi bi-diagram-3"></i></span>Show a full org chart or hierarchy</h3>
-                <p class="adv-option-explainer">This replaces the normal query with a complete top-to-bottom walk of the hierarchy.</p>
                 <div class="d-flex gap-2 align-items-center">
                   <select class="form-select form-select-sm" id="optHierarchy"><option value="">&mdash; none &mdash;</option></select>
                   <button class="btn btn-outline-secondary btn-sm adv-reset-btn" id="optHierarchyClearBtn" type="button"><i class="bi bi-x-circle me-1"></i>Clear</button>
@@ -417,20 +379,15 @@
               </div>
             </div>
           </div>
-
         </div>
       </div>
-
-      <!-- Selected / Described Requirements tab -->
       <div class="tab-pane-manual d-none" id="pane-requirements"><div id="requirementsSummaryBody"></div></div>
     </div>
   </section>
 
-  <!-- ==================== Query Builder for CR ==================== -->
   <section class="app-view" id="view-crbuilder">
     <h1 class="h4 builder-heading"><span class="icon-badge badge-orange"><i class="bi bi-pencil-square"></i></span>Query Builder for CR</h1>
-    <div class="alert alert-warning cr-safety-banner mb-3"><i class="bi bi-shield-lock-fill me-1"></i><strong>Generated SQL only</strong> — this application does not execute database changes. Review and copy the SQL, then run it through your normal Change Request / database process.</div>
-
+    <div class="alert alert-warning cr-safety-banner mb-3"><i class="bi bi-shield-lock-fill me-1"></i><strong>Generated SQL only</strong> — this application does not execute database changes.</div>
     <div class="card mb-3 cr-query-type-card">
       <div class="card-body">
         <label class="form-label fw-semibold small mb-1 d-block"><i class="bi bi-list-check me-1"></i>Query Type</label>
@@ -441,7 +398,6 @@
         </div>
       </div>
     </div>
-
     <div class="builder-row mb-3">
       <div class="builder-col-half">
         <div class="card">
@@ -452,9 +408,8 @@
               <label class="small text-body-secondary mb-0">SQL dialect</label>
               <select class="form-select form-select-sm w-auto" id="crDialectSel"><option>SQL Server</option><option>Oracle</option><option>PostgreSQL</option><option>MySQL</option><option>Generic</option></select>
             </div>
-            <!-- V10.1: Build Query can be triggered directly from the description card, calling the exact same build routine as the persistent Build Query button below the tabs. -->
             <div class="describe-action-row" data-tour="cr-describe-build">
-              <span class="describe-hint">Works from your description alone (Query Type, table, values, and WHERE conditions can all be described), your manual selections alone, or both together.</span>
+              <span class="describe-hint">Works from your description alone, your manual selections alone, or both together.</span>
               <button class="btn btn-warning btn-sm" id="crGenerateFromDescriptionBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
             </div>
             <div class="description-interpretation-box" id="crDescriptionInterpretationBox"></div>
@@ -475,17 +430,14 @@
         </div>
       </div>
     </div>
-
     <ul class="nav nav-tabs flex-wrap" id="crManualTabs">
       <li class="nav-item"><button class="nav-link active" data-cr-tab="tables" type="button"><i class="bi bi-table me-1"></i>Tables &amp; Columns</button></li>
       <li class="nav-item"><button class="nav-link" data-cr-tab="requirements" type="button"><i class="bi bi-clipboard-check me-1"></i>Selected / Described Requirements</button></li>
     </ul>
-
     <div class="tab-action-bar">
       <span class="text-body-secondary tab-action-hint">Configure your Change Request using the tabs below, and/or use the description above, then build.</span>
       <button class="btn btn-warning btn-sm" id="crBuildBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
     </div>
-
     <div class="tab-content-wrap">
       <div class="tab-pane-cr active" id="cr-pane-tables">
         <div class="builder-row mb-3">
@@ -493,7 +445,6 @@
             <div class="card">
               <div class="card-body">
                 <h2 class="h6"><span class="icon-badge icon-badge-sm badge-blue"><i class="bi bi-table"></i></span> Pick Table</h2>
-                <p class="small text-body-secondary">Choose the table for this Change Request.</p>
                 <select class="form-select form-select-sm" id="crTableSelect"></select>
               </div>
             </div>
@@ -533,7 +484,6 @@
     </div>
   </section>
 
-  <!-- ==================== Used Schema ==================== -->
   <section class="app-view" id="view-usedschema">
     <h1 class="h4 builder-heading"><span class="icon-badge badge-blue"><i class="bi bi-file-earmark-text-fill"></i></span>Used Schema</h1>
     <div class="row g-2 mb-3" id="usedSchemaSummary"></div>
@@ -543,24 +493,30 @@
     <div id="schemaTree"></div>
   </section>
 
-  <!-- ==================== Update Schema ==================== -->
   <section class="app-view" id="view-updateschema">
     <h1 class="h4 builder-heading"><span class="icon-badge badge-pink"><i class="bi bi-cloud-arrow-up-fill"></i></span>Update Schema</h1>
-
     <div class="schema-persistence-status mb-3" id="schemaPersistenceStatus"></div>
-
     <div class="card mb-3" id="updateSchemaPasswordStep">
       <div class="card-body">
-        <p class="small">This is a password-protected administrator action. It never connects to a production database. For safety, the password is re-checked before every action that changes the active schema, not just when you first unlock this page.</p>
+        <p class="small">This is a password-protected administrator action. It never connects to a production database.</p>
         <div class="d-flex gap-2"><input class="form-control" type="password" id="updateSchemaPasswordInput" placeholder="Password"><button class="btn btn-primary" id="updateSchemaPasswordBtn" type="button"><i class="bi bi-unlock-fill me-1"></i>Unlock</button></div>
         <div class="alert alert-danger py-2 mt-2 d-none" id="updateSchemaPasswordError">Incorrect password.</div>
       </div>
     </div>
     <div class="d-none" id="updateSchemaWorkArea">
+      <div class="card mb-3" id="schemaSyncCard" data-tour="sync-card">
+        <div class="card-body">
+          <h2 class="h6"><span class="icon-badge icon-badge-sm badge-cyan"><i class="bi bi-arrow-repeat"></i></span> Cross-Device Schema Sync <span class="badge text-bg-info-subtle text-info-emphasis">New in V10.2</span></h2>
+          <p class="small text-body-secondary">Link the active schema to a single shared file — placed in a SharePoint document library, a synced OneDrive folder, or a shared network drive — so that Apply / Delete / Save Relationship actions update that file too. This requires a Chromium-based browser (Chrome, Edge, or similar).</p>
+          <div id="schemaSyncStatusBody"></div>
+          <div class="schema-sync-actions" id="schemaSyncActionsBody"></div>
+          <div class="schema-sync-lastcheck" id="schemaSyncLastCheck"></div>
+          <p class="schema-sync-note">Everyone who needs the same schema should link to the exact same file. AP-SQL Assistant only reads and writes that one file through your browser's own permission system.</p>
+        </div>
+      </div>
       <div class="card mb-3">
         <div class="card-body">
           <h2 class="h6"><span class="icon-badge icon-badge-sm badge-green"><i class="bi bi-download"></i></span> Download Current Schema</h2>
-          <p class="small text-body-secondary">Download the schema currently active in the application, with all data, in any supported format.</p>
           <div class="d-flex flex-wrap gap-2">
             <button class="btn btn-outline-secondary btn-sm" id="downloadCurrentJsonBtn" type="button"><i class="bi bi-filetype-json me-1"></i>Current Schema (.json)</button>
             <button class="btn btn-outline-secondary btn-sm" id="downloadCurrentCsvBtn" type="button"><i class="bi bi-filetype-csv me-1"></i>Current Schema (.csv)</button>
@@ -606,28 +562,24 @@
           <div class="d-flex gap-2 mt-3"><button class="btn btn-success btn-sm" id="activateSchemaBtn" type="button"><i class="bi bi-cloud-check-fill me-1"></i>Apply Schema Update</button><button class="btn btn-outline-secondary btn-sm" id="cancelPreviewBtn" type="button"><i class="bi bi-x-circle me-1"></i>Cancel Update</button></div>
         </div>
       </div>
-
       <div class="card danger-zone-card">
         <div class="card-body">
           <h2 class="h6 danger-zone-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>Danger Zone</h2>
-          <p class="small text-body-secondary">Permanently remove every table, column, and relationship from the active schema. A backup is downloaded automatically as a <code>.json</code> file before anything is deleted, and the password is re-checked as an extra confirmation step.</p>
+          <p class="small text-body-secondary">Permanently remove every table, column, and relationship from the active schema. A backup is downloaded automatically first.</p>
           <button class="btn btn-outline-danger btn-sm" id="deleteSchemaBtn" type="button"><i class="bi bi-trash3-fill me-1"></i>Delete Current Schema</button>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ==================== Error Rectifier ==================== -->
   <section class="app-view" id="view-errorrectifier">
     <h1 class="h4 builder-heading"><span class="icon-badge badge-cyan"><i class="bi bi-magic"></i></span>Error Rectifier</h1>
     <div class="alert alert-warning error-rectifier-safety-banner mb-3" data-tour="err-safety"><i class="bi bi-shield-lock-fill me-1"></i><strong>SQL generated for review only. AP-SQL Assistant does not execute database changes.</strong></div>
-
     <div class="builder-row mb-3">
       <div class="builder-col-half">
         <div class="card h-100" data-tour="err-errorbox">
           <div class="card-body">
             <h2 class="h6"><span class="icon-badge icon-badge-sm badge-red"><i class="bi bi-exclamation-octagon-fill"></i></span> Enter Database Error</h2>
-            <p class="small text-body-secondary">Paste the complete database error message — Oracle, SQL Server, PostgreSQL, MySQL, or another supported dialect.</p>
             <textarea class="form-control error-editor-textarea" id="errErrorInput" rows="6" placeholder="Example: ORA-00932: inconsistent datatypes: expected CHAR got NUMBER"></textarea>
           </div>
         </div>
@@ -636,12 +588,10 @@
         <div class="card h-100" data-tour="err-sqlbox">
           <div class="card-body">
             <h2 class="h6"><span class="icon-badge icon-badge-sm badge-blue"><i class="bi bi-code-square"></i></span> Enter Current SQL Query</h2>
-            <p class="small text-body-secondary">Paste the SQL query that produced the error above.</p>
             <textarea class="form-control sql-editor-textarea" id="errSqlInput" rows="6" placeholder="SELECT
     LOGIN_TYPE,
     CASE
         WHEN LOGIN_TYPE = 0 THEN 'Forms'
-        WHEN LOGIN_TYPE = 1 THEN 'Windows Domain'
         ELSE LOGIN_TYPE
     END AS LOGIN_TYPE
 FROM ADM_USER_DATA;"></textarea>
@@ -649,16 +599,14 @@ FROM ADM_USER_DATA;"></textarea>
         </div>
       </div>
     </div>
-
     <div class="tab-action-bar" style="border-radius:.5rem; border:1px solid var(--bs-border-color);" data-tour="err-rectifybtn">
       <div class="d-flex flex-wrap gap-2 align-items-center">
         <label class="small text-body-secondary mb-0">SQL dialect</label>
         <select class="form-select form-select-sm w-auto" id="errDialectSel"><option>SQL Server</option><option>Oracle</option><option>PostgreSQL</option><option>MySQL</option><option>Generic</option></select>
-        <span class="text-body-secondary tab-action-hint">The dialect is auto-detected from the pasted error where possible — you can also change it manually.</span>
+        <span class="text-body-secondary tab-action-hint">Auto-detected from the pasted error where possible.</span>
       </div>
       <button class="btn btn-primary btn-sm" id="errRectifyBtn" type="button"><i class="bi bi-magic me-1"></i>Rectify SQL</button>
     </div>
-
     <div class="card mt-3" data-tour="err-rectifiedbox">
       <div class="card-body">
         <h2 class="h6"><span class="icon-badge icon-badge-sm badge-green"><i class="bi bi-code-slash"></i></span> Rectified SQL</h2>
@@ -668,17 +616,15 @@ FROM ADM_USER_DATA;"></textarea>
         </div>
       </div>
     </div>
-
     <div class="card mt-3" data-tour="err-explanationbox">
       <div class="card-body">
         <h2 class="h6"><span class="icon-badge icon-badge-sm badge-purple"><i class="bi bi-lightbulb-fill"></i></span> Explanation</h2>
-        <div class="explanation-box" id="errExplanationBody"><p class="text-body-secondary small mb-0">The error identified and the correction applied will be explained here in plain language.</p></div>
+        <div class="explanation-box" id="errExplanationBody"><p class="text-body-secondary small mb-0">The error identified and the correction applied will be explained here.</p></div>
         <div class="d-flex flex-wrap gap-2 mt-2">
           <button class="btn btn-outline-secondary btn-sm d-none" id="errCopyExplanationBtn" type="button"><i class="bi bi-clipboard-check-fill me-1"></i>Copy Explanation</button>
         </div>
       </div>
     </div>
-
     <div class="card mt-3 d-none" id="errWhatChangedCard">
       <div class="card-body">
         <h2 class="h6"><span class="icon-badge icon-badge-sm badge-orange"><i class="bi bi-arrow-left-right"></i></span> What Changed</h2>
@@ -690,7 +636,7 @@ FROM ADM_USER_DATA;"></textarea>
 </div>
 
 <footer class="text-center py-4 text-body-secondary small">
-  <div>AP-SQL Assistant · Version 10.1</div>
+  <div>AP-SQL Assistant · Version 10.2</div>
   <div class="creator-signature-wrap d-flex flex-column align-items-center mt-1">
     <div><span class="creator-signature-label">Crafted by</span> <span class="creator-signature">Subham Ain</span></div>
     <svg class="creator-signature-flourish" width="92" height="10" viewBox="0 0 86 10" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -710,7 +656,7 @@ FROM ADM_USER_DATA;"></textarea>
   <div class="modal-dialog"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="bi bi-shield-lock-fill me-2"></i>Confirm Password to Apply</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-      <p class="small">For safety, please re-enter the Update Schema password to confirm you want to apply this schema change now.</p>
+      <p class="small">For safety, please re-enter the Update Schema password to confirm.</p>
       <input type="password" class="form-control" id="reauthApplyPasswordInput" placeholder="Password">
       <div class="alert alert-danger py-2 mt-2 d-none" id="reauthApplyPasswordError">Incorrect password. The schema was not changed.</div>
     </div>
@@ -725,8 +671,8 @@ FROM ADM_USER_DATA;"></textarea>
   <div class="modal-dialog"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Delete Current Schema?</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-      <p class="small">This will permanently remove all tables, columns, and relationships from the active schema. The Read Only Query Builder and Query Builder for CR will have no tables available until a new schema is uploaded.</p>
-      <p class="small fw-semibold">A backup of the current schema will be automatically downloaded as <code>schema-backup-before-delete.json</code> before anything is deleted.</p>
+      <p class="small">This will permanently remove all tables, columns, and relationships from the active schema.</p>
+      <p class="small fw-semibold">A backup will be automatically downloaded as <code>schema-backup-before-delete.json</code>.</p>
       <label class="form-label small">Re-enter the Update Schema password to confirm</label>
       <input type="password" class="form-control" id="deleteSchemaPasswordInput" placeholder="Password">
       <div class="alert alert-danger py-2 mt-2 d-none" id="deleteSchemaPasswordError">Incorrect password. Schema not deleted.</div>
@@ -742,7 +688,7 @@ FROM ADM_USER_DATA;"></textarea>
   <div class="modal-dialog"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title"><i class="bi bi-shield-lock-fill me-2"></i>Save Relationship to Schema</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-      <p class="small">This will permanently add the following relationship to the active schema. Please re-enter the Update Schema password to confirm.</p>
+      <p class="small">This will permanently add the following relationship to the active schema.</p>
       <div class="alert alert-secondary py-2 small" id="saveRelationshipSummary"></div>
       <input type="password" class="form-control" id="saveRelationshipPasswordInput" placeholder="Password">
       <div class="alert alert-danger py-2 mt-2 d-none" id="saveRelationshipPasswordError">Incorrect password. The relationship was not saved.</div>
@@ -786,6 +732,7 @@ FROM ADM_USER_DATA;"></textarea>
 <script src="js/optimize-engine.js"></script>
 <script src="js/error-rectifier-engine.js"></script>
 <script src="js/nl-query-engine.js"></script>
+<script src="js/schema-sync-engine.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

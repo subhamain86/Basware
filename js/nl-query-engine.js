@@ -1,38 +1,7 @@
-/**
- * nl-query-engine.js — AP-SQL Assistant Version 10.1 (NEW)
- * ---------------------------------------------------------------------------
- * A small, pure, dependency-light module that interprets a free-text
- * "Describe What You Need" description against the ACTIVE SCHEMA, and
- * turns it into the same plain-data shapes the rest of this application
- * already uses (selected tables, selected columns, filter conditions,
- * sort columns, a result limit, a distinct flag, and a hierarchy table).
- *
- * Design principles (consistent with the rest of this application):
- *   - Schema is the source of truth. Table/column matching is based ONLY
- *     on the active schema's table names, column names, aliases, and
- *     module labels — never on hard-coded business-domain synonyms (e.g.
- *     "vendor"/"supplier"). This keeps the feature fully schema-agnostic,
- *     exactly like Decode and the Error Rectifier already are.
- *   - "Do not invent." If nothing can be confidently matched, the
- *     interpretation simply comes back empty (plus a plain-language
- *     warning) rather than guessing.
- *   - This module NEVER mutates the DOM or any application state by
- *     itself — it only returns plain data. app.js is responsible for
- *     applying that data into the existing, already-tested UI state
- *     (selectedTables, columnState, filter groups, etc.), which then
- *     flows through the exact same, unmodified query-generation pipeline
- *     used for purely manual selections. This means NO changes were
- *     required anywhere in sql-engine.js, cr-engine.js, decode-engine.js,
- *     filter-engine.js, or validation-engine.js to support this feature.
- * ---------------------------------------------------------------------------
- */
 (function (root) {
   'use strict';
   var DATATYPE = (typeof module === 'object' && module.exports) ? require('./datatype-engine.js') : root.APSQL_DATATYPE;
 
-  /* ---------------------------------------------------------------------
-     Small text helpers
-     --------------------------------------------------------------------- */
   function tokenizeWords(text) { return String(text || '').toLowerCase().match(/[a-z0-9]+/g) || []; }
   function normalizeSpaces(s) { return String(s || '').toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim(); }
   function containsPhrase(haystackLower, phrase) { if (!phrase) return false; return haystackLower.indexOf(phrase) !== -1; }
@@ -50,13 +19,8 @@
     return normalizeSpaces(withoutModule);
   }
 
-  /* A single, shared "value" token: quoted string, decimal number, integer, or a bare word/identifier. */
   var VALUE_RE = '("[^"]*"|\'[^\']*\'|-?\\d+\\.\\d+|-?\\d+|[A-Za-z][A-Za-z0-9_\\-]*)';
 
-  /* ---------------------------------------------------------------------
-     Table scoring — schema-derived only (table name, module label);
-     no hard-coded business-domain synonyms.
-     --------------------------------------------------------------------- */
   function scoreAllTables(text, engine) {
     var textLower = String(text || '').toLowerCase();
     var labels = engine.getModuleLabels();
@@ -72,9 +36,6 @@
     }).sort(function (a, b) { return b.score - a.score; });
   }
 
-  /* ---------------------------------------------------------------------
-     Column scoring, scoped to a set of candidate tables.
-     --------------------------------------------------------------------- */
   function matchColumns(text, engine, tableNames, opts) {
     opts = opts || {};
     var threshold = opts.threshold != null ? opts.threshold : 2.5;
@@ -124,13 +85,6 @@
     return best;
   }
 
-  /* ---------------------------------------------------------------------
-     Filter (WHERE condition) extraction. IMPORTANT: value-capturing
-     regexes are matched against the ORIGINAL (not lowercased) text so
-     that captured literal values keep their original casing — only the
-     keyword portions of each pattern rely on the regex 'i' flag for
-     case-insensitivity.
-     --------------------------------------------------------------------- */
   var OPERATOR_DEFS = [
     { operator: 'between', arity: 2, re: 'between\\s+' + VALUE_RE + '\\s+and\\s+' + VALUE_RE },
     { operator: 'gte', arity: 1, re: '(?:greater than or equal to|at least)\\s+' + VALUE_RE },
@@ -196,7 +150,6 @@
         }
       });
     });
-    // Decode-label based equality (only for columns not already matched by an operator pattern).
     tableNames.forEach(function (tname) {
       var table = engine.getTable(tname); if (!table) return;
       table.columns.forEach(function (col) {
@@ -213,7 +166,6 @@
         }
       });
     });
-    // "last N days" -> attach to the best available date/timestamp column.
     var lastDaysMatch = textLower.match(/last\s+(\d+)\s+days?/);
     if (lastDaysMatch && DATATYPE) {
       var n = parseInt(lastDaysMatch[1], 10);
@@ -229,9 +181,6 @@
     return conditions;
   }
 
-  /* ---------------------------------------------------------------------
-     Sort / limit / distinct / hierarchy
-     --------------------------------------------------------------------- */
   function matchSort(text, engine, tableNames) {
     var textLower = String(text || '').toLowerCase();
     var re = /(?:sorted by|order(?:ed)? by|sort by)\s+([a-z0-9 _]+?)(?=(?:\s*,|\s+and\b|\s+ascending|\s+asc\b|\s+descending|\s+desc\b|\s+newest|\s+oldest|\s+highest|\s+lowest|\s+largest|\s+smallest|[.;]|$))/g;
@@ -260,12 +209,6 @@
     if (selfRefTables.length === 1) return selfRefTables[0];
     var inCandidates = selfRefTables.filter(function (t) { return candidateTableNames.indexOf(t) !== -1; });
     if (inCandidates.length === 1) return inCandidates[0];
-    /* Multiple self-referencing tables exist and plain table-name matching
-       didn't uniquely resolve one (e.g. the text says "users" rather than
-       the full bare name "user data") — disambiguate by checking how many
-       of each candidate's bare-name WORDS appear (as substrings, so plural
-       forms like "users" still count) anywhere in the text, and pick a
-       clear single winner if one exists. */
     var textLower = String(text || '').toLowerCase();
     var scored = selfRefTables.map(function (t) {
       var bareWords = bareTableName(t).split(' ').filter(Boolean);
@@ -297,11 +240,6 @@
     return { tables: [], columns: [], filterConditions: [], orderBy: [], limit: null, distinct: false, hierarchyTable: null, matched: [], warnings: warnings || [] };
   }
 
-  /**
-   * interpretDescription(text, engine, opts) — the Read Only Query
-   * Builder's free-text interpreter. `opts.now` (optional Date) lets
-   * callers/tests fix "last N days" computations deterministically.
-   */
   function interpretDescription(text, engine, opts) {
     opts = opts || {};
     var now = opts.now || new Date();
@@ -311,12 +249,6 @@
     var ranked = scoreAllTables(text, engine).filter(function (s) { return s.score >= 1; });
     var candidateNames = ranked.map(function (s) { return s.table.name; });
 
-    /* Check hierarchy intent BEFORE requiring any table to have scored via
-       name/module matching: a hierarchy phrase (e.g. "reporting chain for
-       users") often does not literally contain a self-referencing table's
-       bare name ("user data"), yet matchHierarchy()'s own fallback logic
-       (picking the schema's only self-referencing table) can still resolve
-       it confidently. */
     var hierarchyTable = matchHierarchy(text, engine, candidateNames);
     if (hierarchyTable) {
       return { tables: [hierarchyTable], columns: [], filterConditions: [], orderBy: [], limit: null, distinct: false, hierarchyTable: hierarchyTable, matched: ['Hierarchy: ' + hierarchyTable], warnings: [] };
@@ -352,9 +284,6 @@
     return { tables: finalTables, columns: finalColumns, filterConditions: finalFilters, orderBy: finalOrderBy, limit: limit, distinct: distinct, hierarchyTable: null, matched: matched, warnings: [] };
   }
 
-  /* ---------------------------------------------------------------------
-     Query Builder for CR interpretation
-     --------------------------------------------------------------------- */
   function detectCrCommand(text) {
     var textLower = String(text || '').toLowerCase();
     var patterns = [
@@ -393,13 +322,6 @@
     return out;
   }
 
-  /**
-   * interpretCrDescription(text, engine, opts) — the Query Builder for
-   * CR's free-text interpreter. Splits the text at the first occurrence
-   * of the word "where" so that assignment phrases ("set X to Y") and
-   * WHERE-style filter phrases ("where X is Y") are never confused with
-   * one another, even when they use similar wording (e.g. "is").
-   */
   function interpretCrDescription(text, engine, opts) {
     opts = opts || {};
     text = String(text || '');
@@ -432,13 +354,6 @@
     return { command: command, table: table, insertColumns: insertColumns, updateColumns: updateColumns, filterConditions: filterConditions, matched: matched, warnings: [] };
   }
 
-  /* ---------------------------------------------------------------------
-     Pure merge helpers — combine a manual selection with an NL
-     interpretation. Manual choices always win where they already exist;
-     NL results only fill genuine gaps. These are used by app.js to merge
-     the interpretation into the SAME UI state manual interaction already
-     populates (see app.js's applyDescriptionToSelection()).
-     --------------------------------------------------------------------- */
   function dedupeStrings(arr) {
     var seen = {}; var out = [];
     (arr || []).forEach(function (s) { var k = String(s).toUpperCase(); if (!seen[k]) { seen[k] = true; out.push(s); } });
@@ -473,7 +388,6 @@
     mergeTableLists: mergeTableLists,
     mergeColumnLists: mergeColumnLists,
     mergeFilterConditions: mergeFilterConditions,
-    // Exposed for unit testing individual pieces:
     scoreAllTables: scoreAllTables, matchColumns: matchColumns, matchFilters: matchFilters,
     matchSort: matchSort, matchLimit: matchLimit, matchDistinct: matchDistinct, matchHierarchy: matchHierarchy,
     detectCrCommand: detectCrCommand, matchColumnValueAssignments: matchColumnValueAssignments,

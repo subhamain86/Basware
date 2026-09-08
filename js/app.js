@@ -1,42 +1,3 @@
-/**
- * app.js — AP-SQL Assistant Version 10.1
- * DOM wiring only. All query-generation/validation/decode/filter logic
- * lives in the pure, unit-tested modules under js/*.js.
- *
- * V10.1 changes in this file:
- *   1) "DESCRIBE WHAT YOU NEED" NOW HAS ITS OWN BUILD QUERY BUTTON, in
- *      both the Read Only Query Builder and the Query Builder for CR, and
- *      Build Query now works from the description alone, from manual
- *      selections alone, or from both combined.
- *
- *      This is implemented via two new functions —
- *      applyDescriptionToSelection() (Read Only) and
- *      crApplyDescriptionToSelection() (CR) — which, whenever the
- *      description text box is non-empty, call the new nl-query-engine.js
- *      module to interpret it against the active schema, then MUTATE the
- *      exact same mutable UI state that manual clicking already mutates
- *      (selectedTables, columnState, readOnlyFilterGroup.conditions,
- *      sortRows, optLimit/optDistinct2/optHierarchy for the Read Only
- *      builder; crCommand, crTable, crInsertColumns/crUpdateColumns,
- *      crFilterGroup for the CR builder), re-render the affected UI so the
- *      user visibly sees what was picked up from their description, and
- *      THEN fall through to the exact same, completely unmodified
- *      build/generate logic used for purely manual selections.
- *
- *      Both Build Query buttons (the new one inside the description card,
- *      and the persistent one below the tabs) call the IDENTICAL wrapped
- *      function, so behavior is always the same no matter which button is
- *      clicked. Manual selections are never cleared or overridden by the
- *      description — the merge rules (see nl-query-engine.js) only ever
- *      fill genuine gaps, never replace an explicit manual choice.
- *
- *      No changes were required anywhere in sql-engine.js, cr-engine.js,
- *      decode-engine.js, filter-engine.js, or validation-engine.js to
- *      support this — the description-derived data flows through the
- *      exact same pipeline manual selections already used.
- * Every other id, event handler, and piece of business logic is otherwise
- * identical to V10.0.
- */
 (function () {
   'use strict';
 
@@ -54,7 +15,7 @@
           if (validation.valid) return { schema: parsed, fromStorage: true };
         }
       }
-    } catch (e) { /* corrupted or inaccessible storage — fall back to the embedded default */ }
+    } catch (e) { }
     return { schema: window.__AP_SCHEMA__, fromStorage: false };
   }
   var initialSchemaLoad = loadInitialSchema();
@@ -66,8 +27,146 @@
   function rebuildEngine() { engine = APSQL_RELATIONSHIPS.createEffectiveEngine(APSQL.createEngine(currentSchema), relationshipStore); }
   rebuildEngine();
   var decodeStore = APSQL_DECODE.createDecodeStore();
+
+  var syncSupported = APSQL_SYNC.isFileSystemAccessSupported(window);
+  var syncHandleStore = syncSupported ? APSQL_SYNC.createHandleStore() : null;
+  var linkedHandle = null;
+  var linkedFileName = null;
+  var lastKnownFileModified = null;
+  var syncNeedsReconnect = false;
+  var syncError = null;
+  var syncLastCheckedAt = null;
+  var pendingSaveRelationshipDraft = null;
+
+  function currentSyncState() {
+    return { supported: syncSupported, linked: !!linkedHandle, fileName: linkedFileName, needsReconnect: syncNeedsReconnect, error: syncError };
+  }
+  function renderSyncStatus(transientNote) {
+    var statusBody = $('schemaSyncStatusBody');
+    var actionsBody = $('schemaSyncActionsBody');
+    var lastCheckEl = $('schemaSyncLastCheck');
+    if (!statusBody || !actionsBody) return;
+    var status = APSQL_SYNC.describeSyncStatus(currentSyncState());
+    statusBody.innerHTML = '<div class="schema-sync-status-line level-' + status.level + '">' +
+      (status.level === 'linked' ? '<span class="schema-sync-pulse"></span>' : '<i class="bi ' + (status.level === 'unsupported' ? 'bi-info-circle' : status.level === 'error' ? 'bi-exclamation-triangle-fill' : status.level === 'reconnect' ? 'bi-plug-fill' : 'bi-cloud-slash') + '"></i>') +
+      '<span>' + esc(transientNote || status.text) + '</span></div>';
+    actionsBody.innerHTML = '';
+    if (!syncSupported) { lastCheckEl.textContent = ''; return; }
+    function addBtn(label, iconClass, cls, handler) {
+      var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn btn-sm ' + cls;
+      btn.innerHTML = '<i class="bi ' + iconClass + ' me-1"></i>' + label;
+      btn.addEventListener('click', handler);
+      actionsBody.appendChild(btn);
+    }
+    if (syncNeedsReconnect) {
+      addBtn('Reconnect to Shared File', 'bi-plug-fill', 'btn-outline-warning', reconnectSharedFile);
+      addBtn('Unlink', 'bi-x-circle', 'btn-outline-secondary', unlinkSharedFile);
+    } else if (linkedHandle) {
+      addBtn('Check Now', 'bi-arrow-clockwise', 'btn-outline-primary', function () { checkLinkedFileForUpdates(true); });
+      addBtn('Unlink', 'bi-x-circle', 'btn-outline-secondary', unlinkSharedFile);
+    } else {
+      addBtn('Create New Shared File', 'bi-file-earmark-plus', 'btn-outline-success', linkNewSharedFile);
+      addBtn('Link Existing Shared File', 'bi-folder2-open', 'btn-outline-primary', linkExistingSharedFile);
+    }
+    lastCheckEl.textContent = syncLastCheckedAt ? ('Last checked: ' + syncLastCheckedAt.toLocaleTimeString()) : '';
+  }
+
+  function checkLinkedFileForUpdates(isManualCheck) {
+    if (!linkedHandle) return Promise.resolve();
+    return APSQL_SYNC.verifyPermissionSilent(linkedHandle, 'read').then(function (granted) {
+      if (!granted) { syncNeedsReconnect = true; renderSyncStatus(); return; }
+      syncNeedsReconnect = false;
+      return APSQL_SYNC.readSchemaFromHandle(linkedHandle).then(function (result) {
+        syncLastCheckedAt = new Date();
+        if (lastKnownFileModified !== null && result.lastModified === lastKnownFileModified) { syncError = null; renderSyncStatus(); return; }
+        var tablesToValidate = Array.isArray(result.schema) ? result.schema : result.schema.tables;
+        var validation = window.APSQL_SCHEMA_TOOLS.validateSchema(tablesToValidate);
+        if (!validation.valid) { renderSyncStatus(); return; }
+        currentSchema = result.schema; rebuildEngine();
+        lastKnownFileModified = result.lastModified;
+        try { localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(currentSchema)); } catch (e) { }
+        schemaLoadedFromStorage = true;
+        refreshAllViewsAfterSchemaChange();
+        renderSchemaPersistenceStatus();
+        syncError = null;
+        renderSyncStatus(isManualCheck ? 'Checked the shared file just now.' : 'Schema synced from the shared file (it was updated elsewhere).');
+      });
+    }).catch(function (err) { if (isManualCheck) { syncError = 'Could not check the shared file: ' + err.message; renderSyncStatus(); } });
+  }
+  function syncWriteCurrentSchemaIfLinked() {
+    if (!linkedHandle) return;
+    APSQL_SYNC.verifyPermissionSilent(linkedHandle, 'readwrite').then(function (granted) {
+      if (!granted) { syncNeedsReconnect = true; renderSyncStatus(); return; }
+      return APSQL_SYNC.writeSchemaToHandle(linkedHandle, currentSchema).then(function () {
+        return APSQL_SYNC.readSchemaFromHandle(linkedHandle).then(function (result) { lastKnownFileModified = result.lastModified; });
+      }).then(function () { syncError = null; renderSyncStatus(); });
+    }).catch(function (err) { syncError = 'Could not write to the linked shared file: ' + err.message; renderSyncStatus(); });
+  }
+  function linkNewSharedFile() {
+    if (!window.showSaveFilePicker) return;
+    window.showSaveFilePicker({ suggestedName: 'ap-sql-assistant-schema.json', types: [{ description: 'AP-SQL Assistant Schema', accept: { 'application/json': ['.json'] } }] })
+      .then(function (handle) {
+        linkedHandle = handle; linkedFileName = handle.name; syncNeedsReconnect = false;
+        return APSQL_SYNC.writeSchemaToHandle(handle, currentSchema)
+          .then(function () { return APSQL_SYNC.readSchemaFromHandle(handle); })
+          .then(function (result) { lastKnownFileModified = result.lastModified; return syncHandleStore.saveHandle(handle); });
+      })
+      .then(function () { syncError = null; syncLastCheckedAt = new Date(); renderSyncStatus('Created and linked the shared schema file.'); })
+      .catch(function (err) { if (err && err.name === 'AbortError') return; syncError = 'Could not create the shared schema file: ' + err.message; renderSyncStatus(); });
+  }
+  function linkExistingSharedFile() {
+    if (!window.showOpenFilePicker) return;
+    window.showOpenFilePicker({ types: [{ description: 'AP-SQL Assistant Schema', accept: { 'application/json': ['.json'] } }] })
+      .then(function (handles) {
+        var handle = handles[0];
+        return APSQL_SYNC.verifyPermission(handle, 'readwrite').then(function (granted) {
+          if (!granted) throw new Error('Permission to read/write this file was not granted.');
+          return APSQL_SYNC.readSchemaFromHandle(handle).then(function (result) {
+            var tablesToValidate = Array.isArray(result.schema) ? result.schema : result.schema.tables;
+            var validation = window.APSQL_SCHEMA_TOOLS.validateSchema(tablesToValidate);
+            if (!validation.valid) throw new Error('That file does not contain a valid AP-SQL Assistant schema.');
+            linkedHandle = handle; linkedFileName = handle.name; syncNeedsReconnect = false;
+            currentSchema = result.schema; rebuildEngine();
+            lastKnownFileModified = result.lastModified;
+            try { localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(currentSchema)); } catch (e) { }
+            schemaLoadedFromStorage = true;
+            return syncHandleStore.saveHandle(handle);
+          });
+        });
+      })
+      .then(function () { syncError = null; syncLastCheckedAt = new Date(); refreshAllViewsAfterSchemaChange(); renderSchemaPersistenceStatus(); renderSyncStatus('Linked to the existing shared schema file.'); })
+      .catch(function (err) { if (err && err.name === 'AbortError') return; syncError = 'Could not link that shared schema file: ' + err.message; renderSyncStatus(); });
+  }
+  function unlinkSharedFile() {
+    linkedHandle = null; linkedFileName = null; lastKnownFileModified = null; syncError = null; syncNeedsReconnect = false; syncLastCheckedAt = null;
+    (syncHandleStore ? syncHandleStore.clearHandle() : Promise.resolve()).then(function () { renderSyncStatus(); }).catch(function () { renderSyncStatus(); });
+  }
+  function reconnectSharedFile() {
+    if (!linkedHandle) return;
+    APSQL_SYNC.verifyPermission(linkedHandle, 'readwrite').then(function (granted) {
+      if (!granted) { syncError = 'Permission was not granted, so syncing remains paused for this file.'; renderSyncStatus(); return; }
+      syncNeedsReconnect = false; syncError = null;
+      return checkLinkedFileForUpdates(true);
+    }).catch(function (err) { syncError = 'Could not reconnect: ' + err.message; renderSyncStatus(); });
+  }
+  if (syncSupported && syncHandleStore) {
+    syncHandleStore.loadHandle().then(function (handle) {
+      if (!handle) { renderSyncStatus(); return; }
+      linkedHandle = handle; linkedFileName = handle.name;
+      return APSQL_SYNC.verifyPermissionSilent(handle, 'read').then(function (granted) {
+        if (!granted) { syncNeedsReconnect = true; renderSyncStatus(); return; }
+        return checkLinkedFileForUpdates(false).then(function () { renderSyncStatus(); });
+      });
+    }).catch(function () { renderSyncStatus(); });
+    setInterval(function () { if (typeof document.hidden === 'undefined' || !document.hidden) checkLinkedFileForUpdates(false); }, 20000);
+    if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', function () { if (!document.hidden) checkLinkedFileForUpdates(false); });
+  } else {
+    renderSyncStatus();
+  }
+
   function persistCurrentSchema() {
-    try { localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(currentSchema)); } catch (e) { /* storage unavailable/full — app continues to work in-memory for this session */ }
+    try { localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(currentSchema)); } catch (e) { }
+    syncWriteCurrentSchemaIfLinked();
   }
   function renderSchemaPersistenceStatus() {
     var el = $('schemaPersistenceStatus'); if (!el) return;
@@ -402,7 +501,6 @@
     }
     return relationshipDrafts[tableName];
   }
-  var pendingSaveRelationshipDraft = null;
 
   function renderJoinPreview() {
     updateJoinCardVisibility();
@@ -651,17 +749,6 @@
     return opts;
   }
 
-  /**
-   * V10.1 — applyDescriptionToSelection(): reads the "Describe What You
-   * Need" text box, interprets it against the active schema via
-   * nl-query-engine.js, and MERGES the interpretation into the existing
-   * mutable UI state (selectedTables, columnState, readOnlyFilterGroup,
-   * sortRows, and the single-value Advanced Options fields), then
-   * re-renders every affected section so the user can see exactly what
-   * was picked up. Manual selections already present are never
-   * overwritten — see nl-query-engine.js's merge* functions for the exact
-   * rules. Safe to call with an empty description (a no-op).
-   */
   function applyDescriptionToSelection() {
     var text = $('promptInput').value.trim();
     if (!text) { $('descriptionInterpretationBox').innerHTML = ''; return; }
@@ -824,23 +911,6 @@
     renderOptimizeReport('crOptimizeReportBox', opt);
   });
 
-  /**
-   * V10.1 — crApplyDescriptionToSelection(): interprets the CR builder's
-   * description text and merges it into the existing mutable CR state
-   * (crCommand, crTable, crInsertColumns/crUpdateColumns, crFilterGroup),
-   * visibly updating the Query Type selector, Pick Table dropdown, and
-   * column/filter panels so the user can see exactly what was picked up
-   * from their description, before falling through to the normal build.
-   *
-   * A command/table named in the description takes over ONLY when the
-   * description text actually contains a recognizable command/table
-   * keyword — otherwise whatever is already manually selected (including
-   * the default INSERT/first table) is left completely untouched. This
-   * mirrors the "manual wins unless the description says something
-   * concrete" rule used throughout nl-query-engine.js. The safety-critical
-   * "explicitly confirm no WHERE condition" checkbox is NEVER touched by
-   * the description, by design.
-   */
   function crApplyDescriptionToSelection() {
     var text = $('crDescriptionInput').value.trim();
     if (!text) { $('crDescriptionInterpretationBox').innerHTML = ''; return; }
@@ -953,14 +1023,14 @@
   var aboutModalEl = $('aboutModal'); var aboutModal = window.bootstrap ? new window.bootstrap.Modal(aboutModalEl) : null;
   $('aboutMenuBtn').addEventListener('click', function () {
     var st = engine.getStatus();
-    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.1.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both \u2014 and correcting SQL queries based on database errors, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. Schema updates, deletions, and manually-defined relationships are password-protected and re-verified before every mutating action, and the active schema is saved in this browser so it survives a refresh.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
+    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.2.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both \u2014 correcting SQL queries based on database errors, and syncing schema updates across browsers/devices/users via a linked shared file, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. Schema updates, deletions, and manually-defined relationships are password-protected and re-verified before every mutating action. The active schema is saved in this browser, and optionally also synced to a single shared file the administrator explicitly links \u2014 no schema data is ever sent to any other network destination.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
     closeMenu(); if (aboutModal) aboutModal.show(); else aboutModalEl.classList.add('show');
   });
 
   var WORKFLOW_STEPS = ['Upload Document', 'Read Document', 'Detect Format', 'Detect Modules', 'Detect Tables', 'Detect Columns', 'Extract Metadata', 'Normalize Schema', 'Validate Schema', 'Show Preview', 'User Reviews Changes', 'Generate JSON', 'Validate JSON', 'Apply Schema Update'];
   function renderWorkflowSteps(activeIdx) { $('workflowStepList').innerHTML = WORKFLOW_STEPS.map(function (s, i) { var cls = i < activeIdx ? 'text-bg-success' : (i === activeIdx ? 'text-bg-primary' : 'text-bg-light border'); return '<span class="badge ' + cls + '">' + (i + 1) + '. ' + s + '</span>'; }).join(''); }
   renderWorkflowSteps(0);
-  $('updateSchemaPasswordBtn').addEventListener('click', function () { var pw = $('updateSchemaPasswordInput').value; window.APSQL_SCHEMA_TOOLS.verifyPassword(pw).then(function (ok) { if (ok) { $('updateSchemaPasswordStep').classList.add('d-none'); $('updateSchemaWorkArea').classList.remove('d-none'); renderWorkflowSteps(1); } else $('updateSchemaPasswordError').classList.remove('d-none'); }); });
+  $('updateSchemaPasswordBtn').addEventListener('click', function () { var pw = $('updateSchemaPasswordInput').value; window.APSQL_SCHEMA_TOOLS.verifyPassword(pw).then(function (ok) { if (ok) { $('updateSchemaPasswordStep').classList.add('d-none'); $('updateSchemaWorkArea').classList.remove('d-none'); renderWorkflowSteps(1); renderSyncStatus(); } else $('updateSchemaPasswordError').classList.remove('d-none'); }); });
   function triggerDownload(blob, filename) { var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function () { URL.revokeObjectURL(url); }, 2000); }
   $('downloadCurrentJsonBtn').addEventListener('click', function () { triggerDownload(window.APSQL_SCHEMA_TOOLS.buildCurrentSchemaJsonBlob(currentSchema), 'current-schema.json'); });
   $('downloadCurrentCsvBtn').addEventListener('click', function () { triggerDownload(window.APSQL_SCHEMA_TOOLS.buildCurrentSchemaCsvBlob(currentSchema), 'current-schema.csv'); });
@@ -1007,7 +1077,7 @@
     schemaLoadedFromStorage = true; persistCurrentSchema(); renderSchemaPersistenceStatus();
     renderWorkflowSteps(13);
     refreshAllViewsAfterSchemaChange();
-    $('updateSchemaResult').innerHTML = '<div class="alert alert-success py-2"><div><strong>' + mergeResult.addedTables.length + '</strong> new table(s), <strong>' + mergeResult.addedColumns.length + '</strong> new column(s) added.</div><div class="mt-2"><code>Schema Version: ' + esc(currentSchema.schema_version) + '</code></div><div class="mt-2">The new schema is now active everywhere in this app \u2014 Used Schema, both Query Builders, Error Rectifier, filters, decode, and validation \u2014 and has been saved in this browser, so it will still be here after a refresh.</div></div>';
+    $('updateSchemaResult').innerHTML = '<div class="alert alert-success py-2"><div><strong>' + mergeResult.addedTables.length + '</strong> new table(s), <strong>' + mergeResult.addedColumns.length + '</strong> new column(s) added.</div><div class="mt-2"><code>Schema Version: ' + esc(currentSchema.schema_version) + '</code></div><div class="mt-2">The new schema is now active everywhere in this app \u2014 Used Schema, both Query Builders, Error Rectifier, filters, decode, and validation \u2014 and has been saved in this browser (and to the linked shared file, if one is set up), so it will still be here after a refresh.</div></div>';
     $('updateSchemaPreviewCard').classList.add('d-none'); pendingIncomingTables = null;
   }
   var reauthApplyModalEl = $('reauthApplyModal'); var reauthApplyModal = window.bootstrap ? new window.bootstrap.Modal(reauthApplyModalEl) : null;
@@ -1045,7 +1115,7 @@
       crInsertColumns = {}; crUpdateColumns = {}; crFilterGroup.conditions = []; $('crDescriptionInput').value = ''; $('crDescriptionInterpretationBox').innerHTML = '';
       refreshAllViewsAfterSchemaChange();
       if (deleteSchemaModal) deleteSchemaModal.hide();
-      $('updateSchemaResult').innerHTML = '<div class="alert alert-warning py-2"><strong>The active schema has been deleted.</strong> A backup was automatically downloaded as <code>schema-backup-before-delete.json</code>. Upload a new schema file above to continue, or re-import that backup.</div>';
+      $('updateSchemaResult').innerHTML = '<div class="alert alert-warning py-2"><strong>The active schema has been deleted.</strong> A backup was automatically downloaded as <code>schema-backup-before-delete.json</code>. Upload a new schema file above to continue, or re-import that backup. If a shared file is linked, it has also been updated to the empty schema.</div>';
     });
   });
 
@@ -1069,9 +1139,6 @@
     });
   });
 
-  /* ================================================================
-     ERROR RECTIFIER (unchanged from V10.0)
-     ================================================================ */
   var errLastResult = null;
   function renderErrorRectifierResult(result) {
     errLastResult = result;
@@ -1116,40 +1183,40 @@
     var old = $('errCopyExplanationBtn').innerHTML; $('errCopyExplanationBtn').innerHTML = '&#9989; Copied'; setTimeout(function () { $('errCopyExplanationBtn').innerHTML = old; }, 1300);
   });
 
-  /* GUIDED WALKTHROUGH */
   var TOURS = {
     quickstart: [
-      { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and helps correct a SQL query when a database gives you back an error — all using your organization\'s approved schema as the single source of truth.</p>' },
+      { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and helps correct a SQL query when a database gives you back an error.</p>' },
       { sel: '#qsExampleGrid', place: 'top', title: 'Try an example', body: '<p>Click any card to load a ready-made example straight into the Read Only Query Builder.</p>' },
-      { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Two ways to build a query', body: '<p>You can describe what you need in plain language and click Build Query right there, make selections manually, or combine both — either way works.</p>' }
+      { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Two ways to build a query', body: '<p>Describe what you need in plain language, make selections manually, or combine both.</p>' }
     ],
     builder: [
-      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request here and use the Build Query button right below it — the description alone can be enough to identify tables, columns, filters, sorting, and more. You can also add manual selections in the tabs below; both are combined.</p>' },
-      { sel: '[data-tour="describe-build"]', place: 'top', title: 'Build Query works right here too', body: '<p>This button and the one below the tabs do exactly the same thing — use whichever is more convenient.</p>' },
-      { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, and copy the generated SQL', body: '<p>The validated, read-only SQL appears here, along with a summary of what was interpreted from your description if you used one.</p>' },
-      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Anything you select manually here is combined with whatever your description already identified. When you tick Decode on a column, you\'ll also see its Data Type and a choice for how to handle the ELSE branch.</p>' }
+      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request here and click Build Query.</p>' },
+      { sel: '[data-tour="describe-build"]', place: 'top', title: 'Build Query works right here too', body: '<p>This button and the one below the tabs do exactly the same thing.</p>' },
+      { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, and copy', body: '<p>The validated SQL appears here.</p>' },
+      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Anything you select manually is combined with your description.</p>' }
     ],
     crbuilder: [
-      { sel: '#crCommandSelector', place: 'bottom', title: 'Query Type', body: '<p>Choose INSERT, UPDATE, or DELETE manually, or let your description decide it for you (e.g. starting with "update..." or "delete...").</p>' },
-      { sel: '[data-tour="cr-describe-build"]', place: 'top', title: 'Describe the whole Change Request, if you like', body: '<p>You can describe the table, the values to set or insert, and any WHERE condition all in one sentence, then click Build Query right here.</p>' },
-      { sel: '#crResultBody', place: 'left', title: 'Reviewing, optimizing, and copying the generated SQL', body: '<p>The generated SQL appears here, clearly labelled with its Query Type.</p>' },
-      { sel: '.cr-safety-banner', place: 'bottom', title: 'Important safety considerations', body: '<p>This application never executes SQL. UPDATE and DELETE require a WHERE condition unless you explicitly confirm otherwise — the description can never bypass this on its own.</p>' }
+      { sel: '#crCommandSelector', place: 'bottom', title: 'Query Type', body: '<p>Choose INSERT, UPDATE, or DELETE manually, or let your description decide.</p>' },
+      { sel: '[data-tour="cr-describe-build"]', place: 'top', title: 'Describe the whole Change Request', body: '<p>Describe the table, values, and WHERE condition all in one sentence.</p>' },
+      { sel: '#crResultBody', place: 'left', title: 'Reviewing and copying', body: '<p>The generated SQL appears here.</p>' },
+      { sel: '.cr-safety-banner', place: 'bottom', title: 'Safety', body: '<p>This application never executes SQL.</p>' }
     ],
     usedschema: [
-      { sel: '#usedSchemaSummary', place: 'bottom', title: 'The currently active schema', body: '<p>This always reflects the schema currently powering both query builders and the Error Rectifier.</p>' },
-      { sel: '#schemaSearchInput', place: 'bottom', title: 'Search the schema', body: '<p>Type here to instantly filter by table name, column name, alias, or description.</p>' }
+      { sel: '#usedSchemaSummary', place: 'bottom', title: 'The currently active schema', body: '<p>This always reflects the schema currently in use.</p>' },
+      { sel: '#schemaSearchInput', place: 'bottom', title: 'Search the schema', body: '<p>Type here to filter.</p>' }
     ],
     updateschema: [
-      { sel: '#schemaPersistenceStatus', place: 'bottom', title: 'Your schema changes are saved', body: '<p>Applying an update, deleting the schema, or saving a manually-defined relationship is all saved in this browser.</p>' },
-      { sel: '#updateSchemaPasswordStep', place: 'bottom', title: 'Password-protected administrator action', body: '<p>Only authorized users can update the schema. The password is re-checked before every action that changes the schema.</p>' }
+      { sel: '#schemaPersistenceStatus', place: 'bottom', title: 'Your schema changes are saved', body: '<p>Saved in this browser.</p>' },
+      { sel: '[data-tour="sync-card"]', place: 'bottom', title: 'Syncing across browsers, devices, and users', body: '<p>Link the schema to a single shared file. This needs a Chromium browser.</p>' },
+      { sel: '#updateSchemaPasswordStep', place: 'bottom', title: 'Password-protected administrator action', body: '<p>Only authorized users can update the schema.</p>' }
     ],
     errorrectifier: [
-      { sel: '[data-tour="err-safety"]', place: 'bottom', title: 'What Error Rectifier does', body: '<p>Error Rectifier helps you fix a SQL query when a real database has given you back an error. It never runs any SQL itself.</p>' },
-      { sel: '[data-tour="err-errorbox"]', place: 'bottom', title: 'Where to find the database error', body: '<p>Copy the complete error text from your database tool or application log and paste it here.</p>' },
-      { sel: '[data-tour="err-sqlbox"]', place: 'bottom', title: 'How to enter the current SQL', body: '<p>Paste the exact SQL query that produced that error here.</p>' },
-      { sel: '[data-tour="err-rectifybtn"]', place: 'top', title: 'Selecting the SQL dialect', body: '<p>Auto-detected from the pasted error where possible — you can always change it manually.</p>' },
-      { sel: '[data-tour="err-rectifiedbox"]', place: 'top', title: 'How to rectify the SQL', body: '<p>Click Rectify SQL to analyze everything together.</p>' },
-      { sel: '[data-tour="err-explanationbox"]', place: 'top', title: 'Reviewing and copying', body: '<p>A plain-language explanation and a "What Changed" list appear here. Always review generated SQL carefully before using it.</p>' }
+      { sel: '[data-tour="err-safety"]', place: 'bottom', title: 'What Error Rectifier does', body: '<p>Helps you fix SQL after a database error.</p>' },
+      { sel: '[data-tour="err-errorbox"]', place: 'bottom', title: 'Where to find the database error', body: '<p>Paste the complete error text.</p>' },
+      { sel: '[data-tour="err-sqlbox"]', place: 'bottom', title: 'How to enter the current SQL', body: '<p>Paste the exact SQL that produced that error.</p>' },
+      { sel: '[data-tour="err-rectifybtn"]', place: 'top', title: 'Selecting the SQL dialect', body: '<p>Auto-detected where possible.</p>' },
+      { sel: '[data-tour="err-rectifiedbox"]', place: 'top', title: 'How to rectify the SQL', body: '<p>Click Rectify SQL.</p>' },
+      { sel: '[data-tour="err-explanationbox"]', place: 'top', title: 'Reviewing and copying', body: '<p>Always review generated SQL before using it.</p>' }
     ],
     about: []
   };

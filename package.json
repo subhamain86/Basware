@@ -1,8 +1,8 @@
 {
   "name": "ap-sql-assistant",
   "private": true,
-  "version": "10.1.0",
-  "description": "AP-SQL Assistant — Version 10.1. The Read Only Query Builder and Query Builder for CR now each have a dedicated Build Query button right inside the 'Describe What You Need' card, and Build Query — whichever button is clicked — now works from the description alone, from manual selections alone, or from both together. A new nl-query-engine.js module interprets the free-text description against the active schema (tables, columns/aliases, 15 filter-style phrasings including plain-language decode-label matching such as 'approved invoices', sort direction, 'top N' limits, 'unique'/distinct, and hierarchy/org-chart intent for the Read Only builder; Query Type detection plus SET/WHERE-style value and filter phrasing for the CR builder), then merges that interpretation directly into the exact same mutable UI state manual clicking already populates — manual choices are always preserved and only genuine gaps are filled in — before flowing through the completely unmodified, already-tested query-generation pipeline. No changes were required in sql-engine.js, cr-engine.js, decode-engine.js, filter-engine.js, or validation-engine.js to support this. Every existing V10.0 feature (data-type-aware Decode, the Error Rectifier, order-independent multi-table joins, Define Relationship, schema persistence, Update Schema re-authentication) continues to work exactly as before.",
+  "version": "10.2.0",
+  "description": "AP-SQL Assistant — Version 10.2. Introduces Cross-Device Schema Sync: on the Update Schema page, an administrator can link the active schema to a single real file (SharePoint, OneDrive, or a network drive) using the browser's File System Access API (Chromium-based browsers only). Every existing feature from V10.1 and earlier (description-driven query building, data-type-aware Decode, the Error Rectifier, order-independent multi-table joins, Define Relationship, and localStorage persistence) continues to work exactly as before.",
   "scripts": {
     "test": "node test/run-all.js",
     "test:smoke": "node test/dom-smoke.js"

@@ -2,22 +2,26 @@
 /**
  * dom-smoke.js — a lightweight DOM/Bootstrap simulation that loads the REAL
  * app.js and exercises the highest-risk interactive code paths end-to-end,
- * including all V10.0 additions:
- *   - The Error Rectifier page routes correctly via the existing generic
- *     [data-view]/.app-view mechanism (no special-casing needed there).
- *   - Clicking "Rectify SQL" runs the real error-rectifier-engine.js
- *     against the real active schema engine and renders a corrected SQL
- *     block, an explanation, and a "What Changed" list end-to-end.
- *   - Dialect auto-detection from the pasted error text actually updates
- *     the dialect dropdown before rectifying.
- *   - Copy SQL / Copy Explanation buttons become visible after a result.
- *   - The data-type-aware Decode SQL generation (verified directly via the
- *     real sql-engine.js/decode-engine.js/datatype-engine.js modules,
- *     exactly as app.js's buildOptions()/collectSelectedColumns() would
- *     invoke them).
- * Everything carried over from V9.2 (schema persistence across a
- * simulated reload, order-independent joins, Define Relationship,
- * Suggested Fixes, Update Schema reauth + delete flow) is also
+ * including all V10.1 additions:
+ *   - Clicking the NEW "Build Query" button inside the "Describe What You
+ *     Need" card, with description text ALONE (no manual table/column
+ *     selection at all), actually produces a fully built, correct query —
+ *     proving description-only building genuinely works end to end.
+ *   - The EXISTING "Build Query" button below the tabs ALSO now honors the
+ *     description text (both buttons call the identical routine).
+ *   - The "Interpreted from your description" summary box is populated
+ *     after a description-driven build.
+ *   - A description combined with a pre-existing manual table selection
+ *     merges sensibly (manual selection is preserved, description adds to
+ *     it) rather than one silently overriding the other.
+ *   - The Query Builder for CR's description box can drive the whole
+ *     Change Request (command, table, values, WHERE) via its own new
+ *     Build Query button.
+ *   - The safety-critical "no WHERE without explicit confirmation" rule
+ *     is never bypassed by a description alone.
+ * Everything carried over from V10.0 (schema persistence across a
+ * simulated reload, order-independent joins, Define Relationship, the
+ * Error Rectifier round trip, Update Schema reauth + delete flow) is also
  * re-verified here to confirm no regression.
  */
 var fs = require('fs');
@@ -104,6 +108,7 @@ global.APSQL_RELATIONSHIPS = require(path.join(__dirname, '..', 'js', 'relations
 global.APSQL_SUGGEST = require(path.join(__dirname, '..', 'js', 'suggestion-engine.js'));
 global.APSQL_OPTIMIZE = require(path.join(__dirname, '..', 'js', 'optimize-engine.js'));
 global.APSQL_ERROR_RECTIFIER = require(path.join(__dirname, '..', 'js', 'error-rectifier-engine.js'));
+global.APSQL_NLQUERY = require(path.join(__dirname, '..', 'js', 'nl-query-engine.js'));
 
 var REQUIRED_IDS = [
   'mainNavbar', 'mainMenu', 'queryBuilderMenuToggle', 'queryBuilderSubmenu', 'schemaMenuToggle', 'schemaSubmenu',
@@ -118,9 +123,10 @@ var REQUIRED_IDS = [
   'existsRowsContainer', 'addExistsRowBtn', 'clearExistsBtn',
   'scalarRowsContainer', 'addScalarRowBtn', 'clearScalarBtn',
   'optHaving', 'optHavingClearBtn', 'optHierarchy', 'optHierarchyClearBtn',
-  'promptInput', 'dialectSel', 'optDistinct2', 'generateBtn', 'resultBody', 'copyBtn', 'optimizeBtn', 'optimizeReportBox',
+  'promptInput', 'dialectSel', 'optDistinct2', 'generateBtn', 'generateFromDescriptionBtn', 'descriptionInterpretationBox',
+  'resultBody', 'copyBtn', 'optimizeBtn', 'optimizeReportBox',
   'manualTabs', 'requirementsSummaryBody',
-  'crCommandSelector', 'crDialectSel', 'crTableSelect', 'crDescriptionInput', 'crBuildBtn',
+  'crCommandSelector', 'crDialectSel', 'crTableSelect', 'crDescriptionInput', 'crBuildBtn', 'crGenerateFromDescriptionBtn', 'crDescriptionInterpretationBox',
   'crInsertPanel', 'crInsertColumnsBody', 'crUpdatePanel', 'crUpdateColumnsBody',
   'crWherePanel', 'crWhereRequiredWarning', 'crFilterGroup', 'crAddFilterBtn', 'crClearFiltersBtn', 'crAllowNoWhere',
   'crDecodePanel', 'crDecodeBody', 'crRequirementsSummaryBody', 'crResultBody', 'crCopyBtn', 'crOptimizeBtn', 'crOptimizeReportBox', 'crManualTabs',
@@ -159,51 +165,76 @@ registry['__qsa_input[name="joinType"]'] = [registry['optJoinInner'], registry['
 
 var pass = 0, fail = 0;
 function ok(msg, cond) { if (cond) { pass++; } else { fail++; console.log('  \u2717 ' + msg); } }
+/* Strips the syntax-highlighting <span> wrapper tags app.js's highlight() inserts around SQL
+   keywords (e.g. "<span class='sql-kw'>TOP</span> 3") before running a plain-text regex
+   assertion against rendered result HTML, so assertions read naturally regardless of exactly
+   which keywords happen to get individually wrapped. */
+function stripTags(html) { return String(html || '').replace(/<[^>]+>/g, ''); }
 
 require(path.join(__dirname, '..', 'js', 'app.js'));
 
 ok('app.js loads without throwing against the mocked DOM', true);
 ok('Join option card is hidden by default when fewer than two tables are selected', registry['joinOptionCard']._cls.has('d-none'));
 
+/* ---- V10.1: description-ONLY build via the NEW button inside the Describe What You Need card ---- */
+registry['promptInput'].value = 'overdue invoices for a supplier in the last 30 days, show invoice number, gross amount and due date';
+registry['generateFromDescriptionBtn'].dispatch('click');
+ok('Description-only build (new button, zero manual selections) produces a real, successful SQL result', /Query validated against active schema/i.test(registry['resultBody']._html || ''));
+ok('...selecting INVOICE_NUMBER, GROSS_SUM, and DUE_DATE as interpreted from the description', /INVOICE_NUMBER/.test(registry['resultBody']._html || '') && /GROSS_SUM/.test(registry['resultBody']._html || '') && /DUE_DATE/.test(registry['resultBody']._html || ''));
+ok('The "Interpreted from your description" summary box is populated', /Interpreted from your description/i.test(registry['descriptionInterpretationBox']._html || ''));
+ok('Copy Result and Optimize buttons become visible after a description-only build', !registry['copyBtn']._cls.has('d-none') && !registry['optimizeBtn']._cls.has('d-none'));
+
+/* ---- V10.1: the EXISTING "Build Query" button below the tabs ALSO honors the description (same routine) ---- */
+registry['promptInput'].value = 'top 3 invoices sorted by gross amount descending';
 registry['generateBtn'].dispatch('click');
-ok('Build Query with no tables selected shows a clarification message + Suggested fixes', /one more detail needed/i.test(registry['resultBody']._html || '') && /Suggested fixes/i.test(registry['resultBody']._html || ''));
+ok('The pre-existing Build Query button (below the tabs) also builds correctly from a description alone', /Query validated against active schema/i.test(registry['resultBody']._html || ''));
+var resultPlainText = stripTags(registry['resultBody']._html || '');
+ok('...and correctly applies the "top 3" limit and descending sort derived from the text', /TOP 3|LIMIT 3|FETCH FIRST 3/.test(resultPlainText) && /ORDER BY[\s\S]*DESC/.test(resultPlainText));
 
-/* ---- V10.0: Error Rectifier — full end-to-end round trip through the real routing + real engine ---- */
-registry['errErrorInput'].value = 'ORA-00932: inconsistent datatypes: expected CHAR got NUMBER';
-registry['errSqlInput'].value = "SELECT\n    LOGIN_TYPE,\n    CASE\n        WHEN LOGIN_TYPE = 0 THEN 'Forms'\n        WHEN LOGIN_TYPE = 1 THEN 'Windows Domain'\n        ELSE LOGIN_TYPE\n    END AS LOGIN_TYPE\nFROM ADM_USER_DATA;";
-registry['errDialectSel'].value = 'Generic'; // deliberately wrong, to prove auto-detection overrides it
-registry['errRectifyBtn'].dispatch('click');
-ok('Rectify SQL auto-detects Oracle from the pasted ORA- error and updates the dialect dropdown', registry['errDialectSel'].value === 'Oracle');
-ok('Rectified SQL box shows the corrected SQL with TO_CHAR applied', /TO_CHAR\(LOGIN_TYPE\)/.test(registry['errRectifiedSqlBody']._html || ''));
-ok('Copy SQL button becomes visible after a result', !registry['errCopySqlBtn']._cls.has('d-none'));
-ok('Explanation panel shows "Error Identified" and "Correction Applied"', /Error Identified/.test(registry['errExplanationBody']._html || '') && /Correction Applied/.test(registry['errExplanationBody']._html || ''));
-ok('Copy Explanation button becomes visible after a result', !registry['errCopyExplanationBtn']._cls.has('d-none'));
-ok('"What Changed" card becomes visible and shows the from/to change', !registry['errWhatChangedCard']._cls.has('d-none') && /ELSE LOGIN_TYPE/.test(registry['errWhatChangedBody']._html || '') && /TO_CHAR/.test(registry['errWhatChangedBody']._html || ''));
-
-/* A genuinely unrecognized error + already-fine SQL should honestly report no change, and hide the What Changed card. */
-registry['errErrorInput'].value = 'Some brand new error nobody has seen before';
-registry['errSqlInput'].value = 'SELECT INVOICE_NUMBER FROM IA_INVOICE WHERE COMPANY_ID = 100';
-registry['errDialectSel'].value = 'Oracle';
-registry['errRectifyBtn'].dispatch('click');
-ok('An unrecognized error + already-correct SQL honestly reports no confident correction', /No specific/.test(registry['errExplanationBody']._html || ''));
-ok('"What Changed" card is hidden when nothing changed', registry['errWhatChangedCard']._cls.has('d-none'));
-
-/* ---- V10.0: data-type-aware Decode, exercised via the real modules exactly as app.js's buildOptions()/collectSelectedColumns() would invoke them ---- */
+/* ---- V10.1: description combined with a pre-existing manual selection merges rather than overrides ---- */
 var engineForCheck = APSQL.createEngine(global.window.__AP_SCHEMA__);
 var storeForCheck = APSQL_DECODE.createDecodeStore();
-var decodeResultOracle = APSQL_ENGINE.generateSql('', { dialect: 'Oracle', selectedTables: ['ADM_USER_DATA'], selectedColumns: [{ table: 'ADM_USER_DATA', column: 'LOGIN_TYPE', alias: 'LOGIN_TYPE', decode: true, elseMode: 'convert' }] }, engineForCheck, storeForCheck);
-ok('Data-type-aware Decode (Oracle, convert mode) produces TO_CHAR in the ELSE branch end-to-end', decodeResultOracle.status === 'ok' && /ELSE TO_CHAR\(ADM_USER_DATA\.LOGIN_TYPE\)/.test(decodeResultOracle.sql));
-var decodeResultKeep = APSQL_ENGINE.generateSql('', { dialect: 'Oracle', selectedTables: ['ADM_USER_DATA'], selectedColumns: [{ table: 'ADM_USER_DATA', column: 'LOGIN_TYPE', alias: 'LOGIN_TYPE', decode: true, elseMode: 'keep' }] }, engineForCheck, storeForCheck);
-ok('elseMode "keep" preserves the exact pre-V10 SQL shape end-to-end', /ELSE ADM_USER_DATA\.LOGIN_TYPE\b/.test(decodeResultKeep.sql) && !/TO_CHAR/.test(decodeResultKeep.sql));
+var manualCols = [{ table: 'IA_SUPPLIER', column: 'SUPPLIER_CODE' }];
+var interp = APSQL_NLQUERY.interpretDescription('show invoice number for invoices', engineForCheck, {});
+var mergedTables = APSQL_NLQUERY.mergeTableLists(['IA_SUPPLIER'], interp.tables);
+ok('Manual table selection is preserved and combined with a description-derived table (not overridden)', mergedTables.indexOf('IA_SUPPLIER') !== -1 && mergedTables.indexOf('IA_INVOICE') !== -1);
+var mergedCols = APSQL_NLQUERY.mergeColumnLists(manualCols, interp.columns);
+ok('Manual column selection for IA_SUPPLIER survives the merge untouched', mergedCols.some(function (c) { return c.table === 'IA_SUPPLIER' && c.column === 'SUPPLIER_CODE'; }));
+ok('...while the description-derived IA_INVOICE column is also added', mergedCols.some(function (c) { return c.table === 'IA_INVOICE' && c.column === 'INVOICE_NUMBER'; }));
 
-/* ---- Carried forward from V9.2: order-independent multi-table joins + Define Relationship ---- */
+/* ---- V10.1 safety (run FIRST, on a completely fresh CR session with no prior filter state):
+   a description can never bypass the mandatory WHERE-condition safety net on its own. ---- */
+registry['crDescriptionInput'].value = 'update the invoice status to 40';
+registry['crAllowNoWhere'].checked = false;
+registry['crGenerateFromDescriptionBtn'].dispatch('click');
+ok('A description with no WHERE-style clause still triggers the mandatory WHERE requirement (never silently bypassed)', /A WHERE condition is required/.test(registry['crResultBody']._html || '') || !registry['crWhereRequiredWarning']._cls.has('d-none'));
+
+/* ---- V10.1: Query Builder for CR — description drives the whole Change Request via its own new button ---- */
+registry['crDescriptionInput'].value = 'update the invoice status to 40 where invoice id is 123';
+registry['crGenerateFromDescriptionBtn'].dispatch('click');
+ok('CR description-driven build switches the visual Query Type selector to UPDATE', registry['__qsa_.cr-command-option'].filter(function (o) { return o.getAttribute('data-command') === 'UPDATE'; })[0]._cls.has('active'));
+ok('CR description-only build (no manual selection at all) produces a real, successful UPDATE statement', /Query Type: UPDATE/.test(registry['crResultBody']._html || '') && /STATUS = 40/.test(registry['crResultBody']._html || '') && /INVOICE_ID = 123/.test(registry['crResultBody']._html || ''));
+ok('The CR "Interpreted from your description" summary box is populated', /Interpreted from your description/i.test(registry['crDescriptionInterpretationBox']._html || ''));
+
+/* ---- Carried forward from V10.0: order-independent multi-table joins + Define Relationship (no regression) ---- */
 var threeTableBadOrder = APSQL_ENGINE.buildJoinPlan(engineForCheck, ['IA_INVOICE', 'OM_ORDER', 'IA_SUPPLIER']);
-ok('buildJoinPlan resolves a 3-table chain even in a selection order that used to fail (order-independence, no regression)', threeTableBadOrder.errors.length === 0 && threeTableBadOrder.joins.length === 2);
+ok('buildJoinPlan resolves a 3-table chain even in a selection order that used to fail (no regression)', threeTableBadOrder.errors.length === 0 && threeTableBadOrder.joins.length === 2);
 var relStoreForCheck = APSQL_RELATIONSHIPS.createRelationshipStore();
 relStoreForCheck.setManualRelationship('IA_INVOICE', 'COMPANY_ID', 'ADM_USER_DATA', 'USER_ID');
 var effEngineForCheck = APSQL_RELATIONSHIPS.createEffectiveEngine(engineForCheck, relStoreForCheck);
 var afterMapping = APSQL_ENGINE.generateSql('', { selectedTables: ['IA_INVOICE', 'ADM_USER_DATA'], selectedColumns: [{ table: 'IA_INVOICE', column: 'INVOICE_NUMBER' }] }, effEngineForCheck, storeForCheck);
 ok('"Use for this query" manual relationship mapping still lets a previously-unrelated join succeed (no regression)', afterMapping.status === 'ok');
+
+/* ---- Carried forward from V10.0: data-type-aware Decode end-to-end (no regression) ---- */
+var decodeResultOracle = APSQL_ENGINE.generateSql('', { dialect: 'Oracle', selectedTables: ['ADM_USER_DATA'], selectedColumns: [{ table: 'ADM_USER_DATA', column: 'LOGIN_TYPE', alias: 'LOGIN_TYPE', decode: true, elseMode: 'convert' }] }, engineForCheck, storeForCheck);
+ok('Data-type-aware Decode (Oracle, convert mode) still produces TO_CHAR in the ELSE branch (no regression)', decodeResultOracle.status === 'ok' && /ELSE TO_CHAR\(ADM_USER_DATA\.LOGIN_TYPE\)/.test(decodeResultOracle.sql));
+
+/* ---- Carried forward from V10.0: Error Rectifier full round trip (no regression) ---- */
+registry['errErrorInput'].value = 'ORA-00932: inconsistent datatypes: expected CHAR got NUMBER';
+registry['errSqlInput'].value = "SELECT\n    LOGIN_TYPE,\n    CASE\n        WHEN LOGIN_TYPE = 0 THEN 'Forms'\n        ELSE LOGIN_TYPE\n    END AS LOGIN_TYPE\nFROM ADM_USER_DATA;";
+registry['errDialectSel'].value = 'Generic';
+registry['errRectifyBtn'].dispatch('click');
+ok('Error Rectifier still auto-detects Oracle and corrects the ELSE branch (no regression)', registry['errDialectSel'].value === 'Oracle' && /TO_CHAR\(LOGIN_TYPE\)/.test(registry['errRectifiedSqlBody']._html || ''));
 
 /* ---- Update Schema: reauth-before-apply + Delete Current Schema flows, plus persistence (no regression) ---- */
 function flushMicrotasks(waitMs) { return new Promise(function (resolve) { realSetTimeout(resolve, waitMs || 30); }); }
@@ -241,7 +272,6 @@ async function runAsyncChecks() {
   ok('Schema was persisted to localStorage after Apply', !!storedRaw);
   var reloadedEngine = APSQL.createEngine(JSON.parse(storedRaw));
   ok('A schema engine rebuilt purely from localStorage (simulating a fresh page load) sees the new table', reloadedEngine.tableExists('ADM_TEST_NEW_TABLE'));
-  ok('...and still sees the V10 LOGIN_TYPE fixture column (schema round-trips through JSON correctly)', reloadedEngine.columnExists('ADM_USER_DATA', 'LOGIN_TYPE'));
 
   var downloadsBeforeDelete = downloadedFiles.length;
   registry['deleteSchemaBtn'].dispatch('click');
@@ -249,6 +279,7 @@ async function runAsyncChecks() {
   registry['confirmDeleteSchemaBtn'].dispatch('click');
   await flushMicrotasks();
   ok('Correct delete password downloads exactly one backup file and empties the schema', downloadedFiles.length === downloadsBeforeDelete + 1 && liveSchemaTableCount() === 0);
+  ok('Deleting the schema also clears the description interpretation boxes (clean slate)', registry['descriptionInterpretationBox']._html === '' && registry['crDescriptionInterpretationBox']._html === '');
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

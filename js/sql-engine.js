@@ -7,22 +7,6 @@
   function limitClause(dialect, n) {
     switch (dialect) { case 'SQL Server': return { top: 'TOP ' + n, tail: '' }; case 'Oracle': return { top: '', tail: 'FETCH FIRST ' + n + ' ROWS ONLY' }; default: return { top: '', tail: 'LIMIT ' + n }; }
   }
-
-  /**
-   * buildJoinPlan — order-independent, multi-pass join resolution
-   * (unchanged since V9.2). Repeatedly scans the remaining tables and adds
-   * any that connect to the currently-included set, looping until either
-   * every table has been placed or a full pass adds nothing further. This
-   * finds any valid join chain regardless of the order tables were
-   * selected in, and supports joining any number of tables as long as SOME
-   * connected path exists between them (directly or transitively through
-   * other selected tables).
-   *
-   * Returns { joins, errors, unresolved } where `unresolved` is the list
-   * of table names that could not be connected to the rest at all (used
-   * by the UI to offer defining a manual relationship for exactly those
-   * tables).
-   */
   function buildJoinPlan(engine, tables) {
     var included = [tables[0]];
     var remaining = tables.slice(1);
@@ -46,23 +30,11 @@
     var errors = remaining.map(function (t) { return 'No documented relationship was found to join "' + t + '" with the tables already selected.'; });
     return { joins: joins, errors: errors, unresolved: remaining.slice() };
   }
-
   function relatedTableSides(engine, baseTable, relatedTable) {
     var rel = engine.findRelationship(baseTable, relatedTable); if (!rel) return null;
     if (String(rel.fromTable).toUpperCase() === String(relatedTable).toUpperCase()) return { related: { table: rel.fromTable, column: rel.fromColumn }, base: { table: rel.toTable, column: rel.toColumn } };
     return { related: { table: rel.toTable, column: rel.toColumn }, base: { table: rel.fromTable, column: rel.fromColumn } };
   }
-
-  /**
-   * resolveColumnDisplay — V10.0: now also retrieves the selected column's
-   * schema Data Type (via engine.getColumn) and passes it, together with
-   * the active SQL dialect, into decode-engine.js's buildDecodeCaseSql()
-   * so that any generated CASE expression's ELSE branch is automatically
-   * made compatible with that column's actual data type (see
-   * decode-engine.js / datatype-engine.js for the conversion logic
-   * itself). Columns with decode disabled, or with no schema type
-   * information available, behave exactly as before.
-   */
   function resolveColumnDisplay(engine, decodeStore, col, dialect) {
     var base = col.table + '.' + col.column;
     if (col.decode) {

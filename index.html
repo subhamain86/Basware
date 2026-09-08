@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AP-SQL Assistant · Version 10.0</title>
-<meta name="description" content="Schema-aware, read-only and Change Request SQL generator, with data-type-aware Decode and an Error Rectifier.">
+<title>AP-SQL Assistant · Version 10.1</title>
+<meta name="description" content="Schema-aware, read-only and Change Request SQL generator, with data-type-aware Decode, an Error Rectifier, and description-driven query building.">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -51,12 +51,7 @@
   </div>
 </nav>
 
-<!-- ==================== Hamburger offcanvas menu ====================
-     V10.0: one new top-level entry, "Error Rectifier", added between the
-     Schema submenu and the Theme submenu — following the exact same
-     `.nav-link` button markup pattern already used by "Quick Start"
-     (a plain, non-collapsible entry, since Error Rectifier has no
-     sub-items). Nothing else about the menu's structure was changed. ==================== -->
+<!-- ==================== Hamburger offcanvas menu ==================== -->
 <div class="offcanvas offcanvas-start" tabindex="-1" id="mainMenu">
   <div class="offcanvas-header">
     <h5 class="offcanvas-title d-flex align-items-center gap-2"><i class="bi bi-list fs-5"></i> Menu</h5>
@@ -136,15 +131,17 @@
       </span>
       <div>
         <h1 class="h3 builder-heading mb-0">Welcome — what does this tool do?</h1>
-        <div class="text-body-secondary small">AP-SQL Assistant · Version 10.0</div>
+        <div class="text-body-secondary small">AP-SQL Assistant · Version 10.1</div>
       </div>
     </div>
     <p class="text-body-secondary">
       This assistant writes database queries for you — both <strong>read-only reports</strong> and
       <strong>Change Request SQL</strong> (INSERT / UPDATE / DELETE text) — using the
-      organization's approved database schema as its single source of truth, and now also helps you
-      <strong>correct a SQL query</strong> when a database gives you back an error. It never connects to a
-      real database and never executes anything; it only ever produces SQL text for you to review and copy.
+      organization's approved database schema as its single source of truth, and helps you
+      <strong>correct a SQL query</strong> when a database gives you back an error. You can build a query
+      either by describing what you need in plain language, by making selections manually, or both together.
+      It never connects to a real database and never executes anything; it only ever produces SQL text for
+      you to review and copy.
     </p>
     <h2 class="h6 mt-4"><span class="icon-badge icon-badge-sm badge-purple"><i class="bi bi-diagram-3-fill"></i></span> Areas covered by the active schema</h2>
     <div class="d-flex flex-wrap gap-2 mb-3" id="qsModuleChips"></div>
@@ -155,7 +152,7 @@
         <div class="card h-100">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-blue me-2"><i class="bi bi-eye-fill"></i></span>Read Only Query Builder</h3>
-            <p class="small text-body-secondary mb-2">Build safe, validated SELECT / WITH queries — with multi-column filters, joins across any number of tables, aggregation, hierarchy walks, and data-type-aware decode.</p>
+            <p class="small text-body-secondary mb-2">Describe what you need in plain language and click Build Query right there, make selections manually, or combine both — with joins across any number of tables, aggregation, hierarchy walks, and data-type-aware decode.</p>
             <button class="btn btn-outline-primary btn-sm" data-view="builder" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Read Only Query Builder</button>
           </div>
         </div>
@@ -164,7 +161,7 @@
         <div class="card h-100 border-warning-subtle">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-orange me-2"><i class="bi bi-pencil-square"></i></span>Query Builder for CR <span class="badge text-bg-warning-subtle text-warning-emphasis">CR</span></h3>
-            <p class="small text-body-secondary mb-2">Build INSERT / UPDATE / DELETE SQL text for Change Requests, with the same schema, filters and decode engine.</p>
+            <p class="small text-body-secondary mb-2">Describe the change in plain language (e.g. "update the invoice status to 40 where invoice id is 123") and click Build Query, or use the manual controls — with the same schema, filters and decode engine.</p>
             <button class="btn btn-outline-warning btn-sm" data-view="crbuilder" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Query Builder for CR</button>
           </div>
         </div>
@@ -198,6 +195,12 @@
               <select class="form-select form-select-sm w-auto" id="dialectSel"><option>SQL Server</option><option>Oracle</option><option>PostgreSQL</option><option>MySQL</option><option>Generic</option></select>
               <div class="form-check form-check-inline ms-2 mb-0"><input class="form-check-input" type="checkbox" id="optDistinct2"><label class="form-check-label small" for="optDistinct2">Remove duplicates</label></div>
             </div>
+            <!-- V10.1: Build Query can be triggered directly from the description card. This calls the EXACT SAME build routine as the persistent Build Query button below the tabs, so results are always identical regardless of which button is used. -->
+            <div class="describe-action-row" data-tour="describe-build">
+              <span class="describe-hint">Works from your description alone, your manual selections alone, or both together.</span>
+              <button class="btn btn-primary btn-sm" id="generateFromDescriptionBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
+            </div>
+            <div class="description-interpretation-box" id="descriptionInterpretationBox"></div>
           </div>
         </div>
       </div>
@@ -205,7 +208,7 @@
         <div class="card" data-tour="results">
           <div class="card-body">
             <h2 class="h6"><span class="icon-badge icon-badge-sm badge-green"><i class="bi bi-code-slash"></i></span> Generated SQL</h2>
-            <div id="resultBody"><p class="text-body-secondary small mb-0">Your generated SQL will appear here as soon as you click Build Query below.</p></div>
+            <div id="resultBody"><p class="text-body-secondary small mb-0">Your generated SQL will appear here as soon as you click Build Query.</p></div>
             <div class="d-flex flex-wrap gap-2 mt-2">
               <button class="btn btn-outline-primary btn-sm d-none" id="copyBtn" type="button"><i class="bi bi-clipboard-check-fill me-1"></i>Copy Result</button>
               <button class="btn btn-outline-success btn-sm d-none" id="optimizeBtn" type="button"><i class="bi bi-speedometer2 me-1"></i>Optimize</button>
@@ -223,7 +226,7 @@
     </ul>
 
     <div class="tab-action-bar">
-      <span class="text-body-secondary tab-action-hint">Configure your query using the tabs below, then build.</span>
+      <span class="text-body-secondary tab-action-hint">Configure your query using the tabs below, and/or use the description above, then build.</span>
       <button class="btn btn-primary btn-sm" id="generateBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
     </div>
 
@@ -444,11 +447,17 @@
         <div class="card">
           <div class="card-body">
             <h2 class="h6"><span class="icon-badge icon-badge-sm badge-indigo"><i class="bi bi-chat-left-text-fill"></i></span> Describe What You Need <span class="fw-normal text-body-secondary small">(optional)</span></h2>
-            <textarea class="form-control mb-2" id="crDescriptionInput" rows="2" placeholder="Optional: briefly describe the reason for this Change Request, for your own records."></textarea>
+            <textarea class="form-control mb-2" id="crDescriptionInput" rows="2" placeholder="Example: update the invoice status to 40 where invoice id is 123"></textarea>
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <label class="small text-body-secondary mb-0">SQL dialect</label>
               <select class="form-select form-select-sm w-auto" id="crDialectSel"><option>SQL Server</option><option>Oracle</option><option>PostgreSQL</option><option>MySQL</option><option>Generic</option></select>
             </div>
+            <!-- V10.1: Build Query can be triggered directly from the description card, calling the exact same build routine as the persistent Build Query button below the tabs. -->
+            <div class="describe-action-row" data-tour="cr-describe-build">
+              <span class="describe-hint">Works from your description alone (Query Type, table, values, and WHERE conditions can all be described), your manual selections alone, or both together.</span>
+              <button class="btn btn-warning btn-sm" id="crGenerateFromDescriptionBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
+            </div>
+            <div class="description-interpretation-box" id="crDescriptionInterpretationBox"></div>
           </div>
         </div>
       </div>
@@ -456,7 +465,7 @@
         <div class="card">
           <div class="card-body">
             <h2 class="h6"><span class="icon-badge icon-badge-sm badge-green"><i class="bi bi-code-slash"></i></span> Generated SQL</h2>
-            <div id="crResultBody"><p class="text-body-secondary small mb-0">Choose a query type, select a table, and click Build Query below.</p></div>
+            <div id="crResultBody"><p class="text-body-secondary small mb-0">Choose a query type, select a table, and click Build Query.</p></div>
             <div class="d-flex flex-wrap gap-2 mt-2">
               <button class="btn btn-outline-primary btn-sm d-none" id="crCopyBtn" type="button"><i class="bi bi-clipboard-check-fill me-1"></i>Copy Result</button>
               <button class="btn btn-outline-success btn-sm d-none" id="crOptimizeBtn" type="button"><i class="bi bi-speedometer2 me-1"></i>Optimize</button>
@@ -473,7 +482,7 @@
     </ul>
 
     <div class="tab-action-bar">
-      <span class="text-body-secondary tab-action-hint">Configure your Change Request using the tabs below, then build.</span>
+      <span class="text-body-secondary tab-action-hint">Configure your Change Request using the tabs below, and/or use the description above, then build.</span>
       <button class="btn btn-warning btn-sm" id="crBuildBtn" type="button"><i class="bi bi-lightning-charge-fill me-1"></i>Build Query</button>
     </div>
 
@@ -608,14 +617,7 @@
     </div>
   </section>
 
-  <!-- ==================== Error Rectifier (NEW in V10.0) ====================
-       Three main boxes exactly as specified: Enter Database Error, Enter
-       Current SQL Query, Rectified SQL — with a Rectify SQL action button
-       between the input boxes and the output, an Explanation panel, a
-       "What Changed" before/after list, and Copy SQL / Copy Explanation
-       buttons. Fully reuses the existing .card / .builder-row /
-       .sql-output / .alert conventions already used everywhere else in
-       this application. ==================== -->
+  <!-- ==================== Error Rectifier ==================== -->
   <section class="app-view" id="view-errorrectifier">
     <h1 class="h4 builder-heading"><span class="icon-badge badge-cyan"><i class="bi bi-magic"></i></span>Error Rectifier</h1>
     <div class="alert alert-warning error-rectifier-safety-banner mb-3" data-tour="err-safety"><i class="bi bi-shield-lock-fill me-1"></i><strong>SQL generated for review only. AP-SQL Assistant does not execute database changes.</strong></div>
@@ -688,7 +690,7 @@ FROM ADM_USER_DATA;"></textarea>
 </div>
 
 <footer class="text-center py-4 text-body-secondary small">
-  <div>AP-SQL Assistant · Version 10.0</div>
+  <div>AP-SQL Assistant · Version 10.1</div>
   <div class="creator-signature-wrap d-flex flex-column align-items-center mt-1">
     <div><span class="creator-signature-label">Crafted by</span> <span class="creator-signature">Subham Ain</span></div>
     <svg class="creator-signature-flourish" width="92" height="10" viewBox="0 0 86 10" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -783,6 +785,7 @@ FROM ADM_USER_DATA;"></textarea>
 <script src="js/suggestion-engine.js"></script>
 <script src="js/optimize-engine.js"></script>
 <script src="js/error-rectifier-engine.js"></script>
+<script src="js/nl-query-engine.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

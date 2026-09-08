@@ -1,17 +1,14 @@
 /* ==========================================================================
-   AP-SQL Assistant — Version 10.0
+   AP-SQL Assistant — Version 10.1
    Built on Bootstrap 5.3 (CDN) + Bootstrap Icons (CDN) + Google Fonts (CDN).
    Purely additive — never redefines Bootstrap's own variables/classes
    destructively.
 
-   V10.0 adds styling for:
-     - The Decode data-type/else-mode inline panel (Read Only Query Builder,
-       Pick Columns).
-     - The new Error Rectifier page: its three boxes, the safety banner,
-       the explanation panel, and the before/after "What Changed" list.
-   All of this reuses the existing card/builder-row/pre.sql-output/alert
-   conventions already established by prior versions — no new layout
-   system was introduced, per the "do not redesign" requirement.
+   V10.1 adds styling for:
+     - The new "Build Query" button placed directly inside the "Describe
+       What You Need" card (Read Only Query Builder and Query Builder for
+       CR), and the "Interpreted from your description" summary box that
+       appears beneath it after a build.
    ========================================================================== */
 :root {
   --brand: #2f6fed; --brand-dark: #1f57c9;
@@ -37,7 +34,6 @@ body { padding-top: var(--navbar-h, 64px); }
 .app-view.active { display: block; animation: fadein .2s ease; }
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
-/* ---------------- 3D "SQL Builder" logo ---------------- */
 .logo-3d-wrap { perspective: 420px; display: inline-block; }
 .app-logo-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -53,7 +49,6 @@ body { padding-top: var(--navbar-h, 64px); }
 .hero-brand-row { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
 .hero-brand-row .builder-heading { margin-bottom: .15rem; }
 
-/* ---------------- Colorful icon badges ---------------- */
 .icon-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto;
@@ -76,7 +71,6 @@ a.nav-link:hover .icon-badge, button:hover > .icon-badge, .qs-example-card:hover
 .icon-badge.badge-cyan   { background: linear-gradient(150deg, #7fe3ff, #12a9d6); }
 h2.h6 > .icon-badge, h3.h6 > .icon-badge { margin-right: .5rem; vertical-align: -8px; }
 
-/* ---------------- Hamburger menu ---------------- */
 .offcanvas .nav-link { color: var(--bs-body-color); padding: .55rem .7rem; border-radius: 10px; font-size: .95rem; }
 .offcanvas .nav-link:hover { background: var(--bs-tertiary-bg); }
 .offcanvas .nav-link.active { background: var(--brand); color: #fff !important; }
@@ -90,7 +84,6 @@ h2.h6 > .icon-badge, h3.h6 > .icon-badge { margin-right: .5rem; vertical-align: 
 .menu-item-label { display: flex; align-items: center; gap: .65rem; min-width: 0; }
 .menu-item-label > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ---------------- Creator signature ---------------- */
 .creator-signature-wrap { display: inline-flex; align-items: baseline; gap: .35rem; white-space: nowrap; }
 .creator-signature-label { font-size: .68rem; color: var(--bs-secondary-color); opacity: .85; }
 .creator-signature {
@@ -137,6 +130,12 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .cr-query-type-card .card-body { padding: .6rem .9rem; }
 .cr-query-type-card label { margin-bottom: .35rem; }
 
+/* ---------------- V10.1: Describe What You Need action row + interpretation summary ---------------- */
+.describe-action-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .5rem; }
+.describe-action-row .describe-hint { font-size: .78rem; color: var(--bs-secondary-color); }
+.description-interpretation-box .alert ul { padding-left: 1.2rem; margin-bottom: 0; }
+.description-interpretation-box { margin-top: .6rem; }
+
 .tab-action-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; padding: .55rem .9rem; background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-bottom: none; border-top-left-radius: 0; border-top-right-radius: 0; }
 .tab-action-bar .tab-action-hint { font-size: .8rem; }
 .tab-content-wrap { border: 1px solid var(--bs-border-color); border-top: none; border-radius: 0 0 10px 10px; padding: 1rem; }
@@ -157,7 +156,6 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .decode-value-row button { flex: 0 0 auto; }
 .decode-editor-box { border: 1px dashed var(--bs-border-color); border-radius: 10px; padding: .75rem; background: var(--bs-tertiary-bg); }
 
-/* ---------------- V10.0: Decode data-type awareness panel ---------------- */
 .decode-datatype-box { border: 1px dashed var(--brand); border-radius: 8px; padding: .5rem .65rem; margin-top: .35rem; background: rgba(47,111,237,.05); font-size: .78rem; }
 [data-bs-theme="dark"] .decode-datatype-box { background: rgba(47,111,237,.10); }
 .decode-datatype-label { font-weight: 600; color: var(--brand-dark); }
@@ -234,7 +232,6 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 [data-bs-theme="dark"] .danger-zone-card .card-body { background: rgba(230,69,69,.10); }
 .danger-zone-title { color: var(--grad-red-b); }
 
-/* ---------------- V10.0: Error Rectifier page ---------------- */
 .sql-editor-textarea, .error-editor-textarea { font-family: var(--bs-font-monospace); font-size: .82rem; }
 .error-rectifier-safety-banner { border-radius: 10px; }
 .what-changed-box .change-row { padding: .5rem .6rem; border: 1px solid var(--bs-border-color); border-radius: 8px; margin-bottom: .5rem; font-size: .82rem; }

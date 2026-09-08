@@ -20,32 +20,6 @@
     if (manualValues && manualValues.length) return { source: 'user', values: manualValues };
     return { source: null, values: null };
   }
-
-  /**
-   * buildDecodeCaseSql(table, column, decodeValues, aliasName, opts)
-   * ---------------------------------------------------------------------
-   * V10.0: the ELSE branch is now data-type- and dialect-aware. `opts` is
-   * an OPTIONAL new parameter — every pre-existing caller that invokes
-   * this with only 4 arguments continues to work EXACTLY as before,
-   * because with no opts.dataType supplied, elseExpr defaults to the
-   * plain column reference, identical to the original V9.x behavior.
-   *
-   *   opts.dataType — the column's raw schema Data Type string (e.g.
-   *                   "NUMBER(5)"), or falsy/omitted if unavailable.
-   *   opts.dialect  — the active SQL dialect ('Oracle', 'SQL Server',
-   *                   'PostgreSQL', 'MySQL', 'Generic'); defaults to
-   *                   'Generic' if omitted.
-   *   opts.elseMode — 'convert' (default/safe) or 'keep' (explicit user
-   *                   override to preserve the pre-V10 behavior even for
-   *                   a non-text column).
-   *
-   * When opts.dataType is available AND opts.elseMode !== 'keep', the
-   * ELSE branch is rewritten to a dialect-appropriate "convert to text"
-   * expression via datatype-engine.js — but ONLY when that column's type
-   * actually needs it (a text-type column, or a type the schema documents
-   * but this module does not recognize, is left completely unchanged,
-   * per the "do not invent a data type" requirement).
-   */
   function buildDecodeCaseSql(table, column, decodeValues, aliasName, opts) {
     opts = opts || {};
     var col = table ? (table + '.' + column) : column;

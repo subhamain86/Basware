@@ -1,29 +1,41 @@
 /**
- * app.js — AP-SQL Assistant Version 10.0
+ * app.js — AP-SQL Assistant Version 10.1
  * DOM wiring only. All query-generation/validation/decode/filter logic
  * lives in the pure, unit-tested modules under js/*.js.
  *
- * V10.0 changes in this file:
- *   1) DECODE DATA-TYPE AWARENESS (UI) — buildColumnRow() now shows, for
- *      any column with Decode ticked, a small inline panel with the
- *      column's schema Data Type (when available) and an "Else" choice:
- *      "Convert to compatible text" (default/safe) or "Keep original
- *      value" (explicit opt-out, preserving the exact pre-V10 SQL shape).
- *      This choice is stored per-column as `elseMode` and passed straight
- *      through collectSelectedColumns() into sql-engine.js, which already
- *      does all the actual data-type/dialect-aware SQL generation (see
- *      sql-engine.js / decode-engine.js / datatype-engine.js). If no
- *      schema Data Type is available for a column, a short note is shown
- *      instead of the radios, and the original (pre-V10) behavior applies
- *      automatically regardless of the stored elseMode.
- *   2) ERROR RECTIFIER (NEW) — a brand-new, fully independent page wired
- *      up via the existing generic `[data-view]` / `.app-view` routing
- *      mechanism (no changes to that mechanism were needed). Includes
- *      dialect auto-detection from the pasted error text, the Rectify SQL
- *      action (delegating entirely to error-rectifier-engine.js), and
- *      Copy SQL / Copy Explanation actions.
+ * V10.1 changes in this file:
+ *   1) "DESCRIBE WHAT YOU NEED" NOW HAS ITS OWN BUILD QUERY BUTTON, in
+ *      both the Read Only Query Builder and the Query Builder for CR, and
+ *      Build Query now works from the description alone, from manual
+ *      selections alone, or from both combined.
+ *
+ *      This is implemented via two new functions —
+ *      applyDescriptionToSelection() (Read Only) and
+ *      crApplyDescriptionToSelection() (CR) — which, whenever the
+ *      description text box is non-empty, call the new nl-query-engine.js
+ *      module to interpret it against the active schema, then MUTATE the
+ *      exact same mutable UI state that manual clicking already mutates
+ *      (selectedTables, columnState, readOnlyFilterGroup.conditions,
+ *      sortRows, optLimit/optDistinct2/optHierarchy for the Read Only
+ *      builder; crCommand, crTable, crInsertColumns/crUpdateColumns,
+ *      crFilterGroup for the CR builder), re-render the affected UI so the
+ *      user visibly sees what was picked up from their description, and
+ *      THEN fall through to the exact same, completely unmodified
+ *      build/generate logic used for purely manual selections.
+ *
+ *      Both Build Query buttons (the new one inside the description card,
+ *      and the persistent one below the tabs) call the IDENTICAL wrapped
+ *      function, so behavior is always the same no matter which button is
+ *      clicked. Manual selections are never cleared or overridden by the
+ *      description — the merge rules (see nl-query-engine.js) only ever
+ *      fill genuine gaps, never replace an explicit manual choice.
+ *
+ *      No changes were required anywhere in sql-engine.js, cr-engine.js,
+ *      decode-engine.js, filter-engine.js, or validation-engine.js to
+ *      support this — the description-derived data flows through the
+ *      exact same pipeline manual selections already used.
  * Every other id, event handler, and piece of business logic is otherwise
- * identical to V9.2.
+ * identical to V10.0.
  */
 (function () {
   'use strict';
@@ -237,16 +249,6 @@
     return container;
   }
 
-  /**
-   * V10.0: buildDataTypeElseModePanel — shown beneath a column's decode
-   * controls whenever that column's Decode checkbox is ticked. Displays
-   * the schema Data Type (when available) and lets the user pick between
-   * the safe default ("Convert to compatible text") and an explicit
-   * opt-out ("Keep original value"). When no schema Data Type is
-   * available for the column, the radios are replaced with a short,
-   * honest note — the original (pre-V10) behavior applies automatically
-   * in that case regardless of what elseMode happens to be stored.
-   */
   function buildDataTypeElseModePanel(tname, colName, state) {
     var box = document.createElement('div'); box.className = 'decode-datatype-box';
     var schemaCol = engine.getColumn(tname, colName);
@@ -630,12 +632,12 @@
   function collectSelectedColumns() {
     var out = [];
     Object.keys(columnState).forEach(function (tname) { Object.keys(columnState[tname]).forEach(function (cname) { var s = columnState[tname][cname]; if (s.checked) { var entry = { table: tname, column: cname }; if (s.alias) entry.alias = s.alias; if (s.decode) { entry.decode = true; entry.elseMode = s.elseMode || 'convert'; } out.push(entry); } }); });
-    return out.length ? out : undefined;
+    return out;
   }
   function buildOptions() {
     var opts = { dialect: $('dialectSel').value };
     if (selectedTables.length) opts.selectedTables = selectedTables.slice();
-    var cols = collectSelectedColumns(); if (cols) opts.selectedColumns = cols;
+    var cols = collectSelectedColumns(); if (cols.length) opts.selectedColumns = cols;
     if (readOnlyFilterGroup.conditions.length) opts.filterGroup = readOnlyFilterGroup;
     if ($('optDistinct2').checked) opts.distinct = true;
     opts.join = $('optJoinLeft').checked ? 'LEFT' : 'INNER';
@@ -648,8 +650,69 @@
     var having = $('optHaving').value.trim(); if (having) opts.having = having;
     return opts;
   }
-  function runGenerate() { var promptText = $('promptInput').value.trim(); var opts = buildOptions(); var res = APSQL_ENGINE.generateSql(promptText, opts, engine, decodeStore); renderResult(res); showView('builder'); $('resultBody').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+
+  /**
+   * V10.1 — applyDescriptionToSelection(): reads the "Describe What You
+   * Need" text box, interprets it against the active schema via
+   * nl-query-engine.js, and MERGES the interpretation into the existing
+   * mutable UI state (selectedTables, columnState, readOnlyFilterGroup,
+   * sortRows, and the single-value Advanced Options fields), then
+   * re-renders every affected section so the user can see exactly what
+   * was picked up. Manual selections already present are never
+   * overwritten — see nl-query-engine.js's merge* functions for the exact
+   * rules. Safe to call with an empty description (a no-op).
+   */
+  function applyDescriptionToSelection() {
+    var text = $('promptInput').value.trim();
+    if (!text) { $('descriptionInterpretationBox').innerHTML = ''; return; }
+    var interpretation = APSQL_NLQUERY.interpretDescription(text, engine, {});
+
+    selectedTables = APSQL_NLQUERY.mergeTableLists(selectedTables, interpretation.tables);
+
+    var manualColsFlat = collectSelectedColumns();
+    var mergedCols = APSQL_NLQUERY.mergeColumnLists(manualColsFlat, interpretation.columns);
+    mergedCols.forEach(function (c) {
+      var state = ensureColState(c.table);
+      if (!state[c.column]) state[c.column] = { checked: true, alias: c.alias || '', decode: false, elseMode: 'convert' };
+      else state[c.column].checked = true;
+    });
+
+    readOnlyFilterGroup.conditions = APSQL_NLQUERY.mergeFilterConditions(readOnlyFilterGroup.conditions, interpretation.filterConditions).map(function (c) {
+      return c.id ? c : APSQL_FILTER.newCondition(c);
+    });
+
+    if (!sortRows.length && interpretation.orderBy && interpretation.orderBy.length) {
+      interpretation.orderBy.forEach(function (o) { sortRows.push({ table: o.table, column: o.column, direction: o.direction || 'ASC' }); });
+    }
+    if (!$('optLimit').value.trim() && interpretation.limit) $('optLimit').value = String(interpretation.limit);
+    if (interpretation.distinct) $('optDistinct2').checked = true;
+    if (!$('optHierarchy').value && interpretation.hierarchyTable) $('optHierarchy').value = interpretation.hierarchyTable;
+
+    refreshTablesColumnsUI();
+    renderDescriptionInterpretationBox(interpretation);
+  }
+  function renderDescriptionInterpretationBox(interpretation) {
+    var box = $('descriptionInterpretationBox'); if (!box) return;
+    var hasMatched = interpretation.matched && interpretation.matched.length;
+    var hasWarnings = interpretation.warnings && interpretation.warnings.length;
+    if (!hasMatched && !hasWarnings) { box.innerHTML = ''; return; }
+    var parts = [];
+    if (hasMatched) parts.push('<strong><i class="bi bi-chat-left-text-fill me-1"></i>Interpreted from your description:</strong><ul class="mt-1 mb-0">' + interpretation.matched.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>');
+    if (hasWarnings) parts.push('<div class="' + (hasMatched ? 'mt-2 ' : '') + 'text-body-secondary small">' + interpretation.warnings.map(esc).join('<br>') + '</div>');
+    box.innerHTML = '<div class="alert alert-info py-2 mb-0 small">' + parts.join('') + '</div>';
+  }
+
+  function runGenerate() {
+    applyDescriptionToSelection();
+    var promptText = $('promptInput').value.trim();
+    var opts = buildOptions();
+    var res = APSQL_ENGINE.generateSql(promptText, opts, engine, decodeStore);
+    renderResult(res);
+    showView('builder');
+    $('resultBody').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
   $('generateBtn').addEventListener('click', runGenerate);
+  $('generateFromDescriptionBtn').addEventListener('click', runGenerate);
   $('promptInput').addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runGenerate(); });
   refreshTablesColumnsUI(); refreshHierarchyOptions();
 
@@ -760,14 +823,84 @@
     if (opt.hasChanges) { crLastResult = Object.assign({}, crLastResult, { sql: opt.optimizedSql }); crRenderResult(crLastResult); }
     renderOptimizeReport('crOptimizeReportBox', opt);
   });
-  $('crBuildBtn').addEventListener('click', function () {
+
+  /**
+   * V10.1 — crApplyDescriptionToSelection(): interprets the CR builder's
+   * description text and merges it into the existing mutable CR state
+   * (crCommand, crTable, crInsertColumns/crUpdateColumns, crFilterGroup),
+   * visibly updating the Query Type selector, Pick Table dropdown, and
+   * column/filter panels so the user can see exactly what was picked up
+   * from their description, before falling through to the normal build.
+   *
+   * A command/table named in the description takes over ONLY when the
+   * description text actually contains a recognizable command/table
+   * keyword — otherwise whatever is already manually selected (including
+   * the default INSERT/first table) is left completely untouched. This
+   * mirrors the "manual wins unless the description says something
+   * concrete" rule used throughout nl-query-engine.js. The safety-critical
+   * "explicitly confirm no WHERE condition" checkbox is NEVER touched by
+   * the description, by design.
+   */
+  function crApplyDescriptionToSelection() {
+    var text = $('crDescriptionInput').value.trim();
+    if (!text) { $('crDescriptionInterpretationBox').innerHTML = ''; return; }
+    var interpretation = APSQL_NLQUERY.interpretCrDescription(text, engine, {});
+
+    if (interpretation.command) {
+      crCommand = interpretation.command;
+      document.querySelectorAll('.cr-command-option').forEach(function (o) { o.classList.toggle('active', o.getAttribute('data-command') === crCommand); });
+    }
+    if (interpretation.table && engine.getTable(interpretation.table) && interpretation.table !== crTable) {
+      crTable = interpretation.table;
+      $('crTableSelect').value = crTable;
+      crInsertColumns = {}; crUpdateColumns = {}; crFilterGroup = { conditions: [] };
+    }
+    if (crCommand === 'INSERT' && interpretation.insertColumns && interpretation.insertColumns.length) {
+      interpretation.insertColumns.forEach(function (c) {
+        if (!engine.columnExists(crTable, c.name)) return;
+        if (!crInsertColumns[c.name]) crInsertColumns[c.name] = { checked: false, value: '' };
+        crInsertColumns[c.name].checked = true;
+        if (!crInsertColumns[c.name].value) crInsertColumns[c.name].value = c.value;
+      });
+    }
+    if (crCommand === 'UPDATE' && interpretation.updateColumns && interpretation.updateColumns.length) {
+      interpretation.updateColumns.forEach(function (c) {
+        if (!engine.columnExists(crTable, c.column)) return;
+        if (!crUpdateColumns[c.column]) crUpdateColumns[c.column] = { checked: false, value: '' };
+        crUpdateColumns[c.column].checked = true;
+        if (!crUpdateColumns[c.column].value) crUpdateColumns[c.column].value = c.value;
+      });
+    }
+    if ((crCommand === 'UPDATE' || crCommand === 'DELETE') && interpretation.filterConditions && interpretation.filterConditions.length) {
+      crFilterGroup.conditions = APSQL_NLQUERY.mergeFilterConditions(crFilterGroup.conditions, interpretation.filterConditions).map(function (c) {
+        return c.id ? c : APSQL_FILTER.newCondition(c);
+      });
+    }
+    crRenderAll();
+    renderCrDescriptionInterpretationBox(interpretation);
+  }
+  function renderCrDescriptionInterpretationBox(interpretation) {
+    var box = $('crDescriptionInterpretationBox'); if (!box) return;
+    var hasMatched = interpretation.matched && interpretation.matched.length;
+    var hasWarnings = interpretation.warnings && interpretation.warnings.length;
+    if (!hasMatched && !hasWarnings) { box.innerHTML = ''; return; }
+    var parts = [];
+    if (hasMatched) parts.push('<strong><i class="bi bi-chat-left-text-fill me-1"></i>Interpreted from your description:</strong><ul class="mt-1 mb-0">' + interpretation.matched.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>');
+    if (hasWarnings) parts.push('<div class="' + (hasMatched ? 'mt-2 ' : '') + 'text-body-secondary small">' + interpretation.warnings.map(esc).join('<br>') + '</div>');
+    box.innerHTML = '<div class="alert alert-info py-2 mb-0 small">' + parts.join('') + '</div>';
+  }
+
+  function runCrBuild() {
+    crApplyDescriptionToSelection();
     var request = { command: crCommand, table: crTable, allowNoWhere: $('crAllowNoWhere').checked };
     if (crCommand === 'INSERT') request.columns = Object.keys(crInsertColumns).filter(function (n) { return crInsertColumns[n].checked; }).map(function (n) { return { name: n, value: crInsertColumns[n].value }; });
     else if (crCommand === 'UPDATE') { request.updates = Object.keys(crUpdateColumns).filter(function (n) { return crUpdateColumns[n].checked; }).map(function (n) { return { column: n, value: crUpdateColumns[n].value }; }); request.filterGroup = crFilterGroup; }
     else if (crCommand === 'DELETE' || crCommand === 'SELECT') request.filterGroup = crFilterGroup;
     var res = APSQL_CR.buildCrQuery(engine, request, $('crDialectSel').value);
     crRenderResult(res);
-  });
+  }
+  $('crBuildBtn').addEventListener('click', runCrBuild);
+  $('crGenerateFromDescriptionBtn').addEventListener('click', runCrBuild);
   crRefreshTableOptions(); crRenderAll();
 
   document.querySelectorAll('#crManualTabs .nav-link').forEach(function (t) {
@@ -820,7 +953,7 @@
   var aboutModalEl = $('aboutModal'); var aboutModal = window.bootstrap ? new window.bootstrap.Modal(aboutModalEl) : null;
   $('aboutMenuBtn').addEventListener('click', function () {
     var st = engine.getStatus();
-    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.0.0'], ['Purpose', 'Creating and reviewing read-only SQL, generating Change Request (INSERT/UPDATE/DELETE) SQL text, and correcting SQL queries based on database errors — all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. Schema updates, deletions, and manually-defined relationships are password-protected and re-verified before every mutating action, and the active schema is saved in this browser so it survives a refresh.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
+    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.1.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both \u2014 and correcting SQL queries based on database errors, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. Schema updates, deletions, and manually-defined relationships are password-protected and re-verified before every mutating action, and the active schema is saved in this browser so it survives a refresh.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
     closeMenu(); if (aboutModal) aboutModal.show(); else aboutModalEl.classList.add('show');
   });
 
@@ -908,8 +1041,8 @@
       sortRows = []; existsRows = []; scalarRows = [];
       $('optJoinInner').checked = true; syncJoinChoiceHighlight();
       $('optLimit').value = ''; $('optView').value = ''; $('optHaving').value = ''; $('optHierarchy').value = '';
-      $('promptInput').value = '';
-      crInsertColumns = {}; crUpdateColumns = {}; crFilterGroup.conditions = []; $('crDescriptionInput').value = '';
+      $('promptInput').value = ''; $('descriptionInterpretationBox').innerHTML = '';
+      crInsertColumns = {}; crUpdateColumns = {}; crFilterGroup.conditions = []; $('crDescriptionInput').value = ''; $('crDescriptionInterpretationBox').innerHTML = '';
       refreshAllViewsAfterSchemaChange();
       if (deleteSchemaModal) deleteSchemaModal.hide();
       $('updateSchemaResult').innerHTML = '<div class="alert alert-warning py-2"><strong>The active schema has been deleted.</strong> A backup was automatically downloaded as <code>schema-backup-before-delete.json</code>. Upload a new schema file above to continue, or re-import that backup.</div>';
@@ -937,7 +1070,7 @@
   });
 
   /* ================================================================
-     V10.0: ERROR RECTIFIER
+     ERROR RECTIFIER (unchanged from V10.0)
      ================================================================ */
   var errLastResult = null;
   function renderErrorRectifierResult(result) {
@@ -986,20 +1119,21 @@
   /* GUIDED WALKTHROUGH */
   var TOURS = {
     quickstart: [
-      { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and now also helps correct a SQL query when a database gives you back an error — all using your organization\'s approved schema as the single source of truth.</p>' },
+      { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and helps correct a SQL query when a database gives you back an error — all using your organization\'s approved schema as the single source of truth.</p>' },
       { sel: '#qsExampleGrid', place: 'top', title: 'Try an example', body: '<p>Click any card to load a ready-made example straight into the Read Only Query Builder.</p>' },
-      { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Building and reviewing your query', body: '<p>Configure your requirement, then click Build Query to generate SQL. Use Copy Result to copy it, or Optimize to check it for easy performance wins.</p>' }
+      { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Two ways to build a query', body: '<p>You can describe what you need in plain language and click Build Query right there, make selections manually, or combine both — either way works.</p>' }
     ],
     builder: [
-      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need (optional)', body: '<p>Type a plain-English request here, or use the Tables &amp; Columns tab below to build manually.</p>' },
-      { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, and copy the generated SQL', body: '<p>The validated, read-only SQL appears here. If the query couldn\u2019t be built, a Suggested fixes panel explains what to try instead.</p>' },
-      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Pick Tables, Pick Columns and Filters sit side by side. When you tick Decode on a column, you\'ll also see its Data Type and a choice for how to handle the ELSE branch — the safe default automatically avoids datatype-mismatch errors.</p>' }
+      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request here and use the Build Query button right below it — the description alone can be enough to identify tables, columns, filters, sorting, and more. You can also add manual selections in the tabs below; both are combined.</p>' },
+      { sel: '[data-tour="describe-build"]', place: 'top', title: 'Build Query works right here too', body: '<p>This button and the one below the tabs do exactly the same thing — use whichever is more convenient.</p>' },
+      { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, and copy the generated SQL', body: '<p>The validated, read-only SQL appears here, along with a summary of what was interpreted from your description if you used one.</p>' },
+      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Anything you select manually here is combined with whatever your description already identified. When you tick Decode on a column, you\'ll also see its Data Type and a choice for how to handle the ELSE branch.</p>' }
     ],
     crbuilder: [
-      { sel: '#crCommandSelector', place: 'bottom', title: 'Query Type', body: '<p>Choose INSERT, UPDATE, or DELETE. The form below automatically adjusts to show only what\'s relevant.</p>' },
-      { sel: '#crTableSelect', place: 'bottom', title: 'Pick Table', body: '<p>Choose the table you want to insert into, update, or delete from.</p>' },
+      { sel: '#crCommandSelector', place: 'bottom', title: 'Query Type', body: '<p>Choose INSERT, UPDATE, or DELETE manually, or let your description decide it for you (e.g. starting with "update..." or "delete...").</p>' },
+      { sel: '[data-tour="cr-describe-build"]', place: 'top', title: 'Describe the whole Change Request, if you like', body: '<p>You can describe the table, the values to set or insert, and any WHERE condition all in one sentence, then click Build Query right here.</p>' },
       { sel: '#crResultBody', place: 'left', title: 'Reviewing, optimizing, and copying the generated SQL', body: '<p>The generated SQL appears here, clearly labelled with its Query Type.</p>' },
-      { sel: '.cr-safety-banner', place: 'bottom', title: 'Important safety considerations', body: '<p>This application never executes SQL. UPDATE and DELETE require a WHERE condition unless you explicitly confirm otherwise.</p>' }
+      { sel: '.cr-safety-banner', place: 'bottom', title: 'Important safety considerations', body: '<p>This application never executes SQL. UPDATE and DELETE require a WHERE condition unless you explicitly confirm otherwise — the description can never bypass this on its own.</p>' }
     ],
     usedschema: [
       { sel: '#usedSchemaSummary', place: 'bottom', title: 'The currently active schema', body: '<p>This always reflects the schema currently powering both query builders and the Error Rectifier.</p>' },
@@ -1010,12 +1144,12 @@
       { sel: '#updateSchemaPasswordStep', place: 'bottom', title: 'Password-protected administrator action', body: '<p>Only authorized users can update the schema. The password is re-checked before every action that changes the schema.</p>' }
     ],
     errorrectifier: [
-      { sel: '[data-tour="err-safety"]', place: 'bottom', title: 'What Error Rectifier does', body: '<p>Error Rectifier helps you fix a SQL query when a real database has given you back an error. It never runs any SQL itself — it only ever produces corrected SQL text for you to review, and use when and where you decide.</p>' },
-      { sel: '[data-tour="err-errorbox"]', place: 'bottom', title: 'When to use it, and where to find the database error', body: '<p>Use this whenever you\u2019ve run a query and your database returned an error message. Copy the <strong>complete</strong> error text from your database tool or application log — Oracle, SQL Server, PostgreSQL, MySQL, and other dialects are all supported — and paste it here.</p>' },
-      { sel: '[data-tour="err-sqlbox"]', place: 'bottom', title: 'How to enter the current SQL', body: '<p>Paste the exact SQL query that produced that error here, keeping its formatting intact so the analysis has the best chance of finding the real problem.</p>' },
-      { sel: '[data-tour="err-rectifybtn"]', place: 'top', title: 'Selecting the SQL dialect, and how the schema is used', body: '<p>Choose the SQL dialect your database uses — this is auto-detected from the pasted error where possible, but you can always change it. Error Rectifier cross-checks every table and column it finds against the active schema, the same one used everywhere else in this application, so its corrections are grounded in your real database structure rather than guesswork.</p>' },
-      { sel: '[data-tour="err-rectifiedbox"]', place: 'top', title: 'How to rectify the SQL and review the correction', body: '<p>Click Rectify SQL to analyze everything together. The corrected SQL appears here, with syntax highlighting, ready to review.</p>' },
-      { sel: '[data-tour="err-explanationbox"]', place: 'top', title: 'Reviewing the explanation, and copying the corrected SQL', body: '<p>Underneath, a plain-language explanation describes exactly what was wrong and what was changed, plus a "What Changed" before/after list where applicable. Use Copy SQL or Copy Explanation once you\u2019re satisfied. Always review any generated SQL carefully before using it — this application only ever produces SQL text and never executes anything itself.</p>' }
+      { sel: '[data-tour="err-safety"]', place: 'bottom', title: 'What Error Rectifier does', body: '<p>Error Rectifier helps you fix a SQL query when a real database has given you back an error. It never runs any SQL itself.</p>' },
+      { sel: '[data-tour="err-errorbox"]', place: 'bottom', title: 'Where to find the database error', body: '<p>Copy the complete error text from your database tool or application log and paste it here.</p>' },
+      { sel: '[data-tour="err-sqlbox"]', place: 'bottom', title: 'How to enter the current SQL', body: '<p>Paste the exact SQL query that produced that error here.</p>' },
+      { sel: '[data-tour="err-rectifybtn"]', place: 'top', title: 'Selecting the SQL dialect', body: '<p>Auto-detected from the pasted error where possible — you can always change it manually.</p>' },
+      { sel: '[data-tour="err-rectifiedbox"]', place: 'top', title: 'How to rectify the SQL', body: '<p>Click Rectify SQL to analyze everything together.</p>' },
+      { sel: '[data-tour="err-explanationbox"]', place: 'top', title: 'Reviewing and copying', body: '<p>A plain-language explanation and a "What Changed" list appear here. Always review generated SQL carefully before using it.</p>' }
     ],
     about: []
   };

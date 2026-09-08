@@ -11,7 +11,7 @@
     { match: function (m) { return /No documented relationship was found to join/.test(m); },
       suggest: 'One or more of your selected tables have no documented path connecting them to the rest. In Advanced Options, look for "Could not automatically connect" under the join preview.' },
     { match: function (m) { return /At least one table must be selected/.test(m); },
-      suggest: 'Go to the Tables & Columns tab and select at least one table, or describe your requirement in more detail in the text box above.' },
+      suggest: 'Go to the Tables & Columns tab and select at least one table, or describe your requirement in the text box above and click Build Query — the description alone can be enough to identify tables, columns, and filters.' },
     { match: function (m) { return /needs both a from and a to value/.test(m); },
       suggest: 'Fill in both the "from" and "to" values for your Between filter, or switch to a different condition if you only have one value.' },
     { match: function (m) { return /A WHERE condition is required/.test(m); },

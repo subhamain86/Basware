@@ -1,33 +1,9 @@
-/**
- * error-rectifier-engine.js — AP-SQL Assistant Version 10.0 (NEW)
- * ---------------------------------------------------------------------------
- * A pure, dependency-free module that analyzes a pasted database error
- * message together with the SQL statement that produced it, and proposes a
- * corrected SQL statement — using the active schema, the selected SQL
- * dialect, and a set of independent, individually testable correction
- * rules. This module NEVER executes SQL, NEVER connects to a database, and
- * NEVER mutates the active schema; it only ever reads from the schema
- * engine passed into it and returns SQL TEXT.
- *
- * This is intentionally a lightweight, regex/heuristic-based "SQL sniffer"
- * rather than a full SQL parser — a reasonable and honest trade-off for a
- * dependency-free, client-side tool. Every rule below is scoped narrowly
- * enough that it only fires when it has found something concrete and
- * defensible to change; when nothing applicable is found, the module says
- * so plainly rather than inventing a change (matching the same "do not
- * invent" principle used throughout this application's Decode and Schema
- * features).
- * ---------------------------------------------------------------------------
- */
 (function (root) {
   'use strict';
   var DATATYPE = (typeof module === 'object' && module.exports) ? require('./datatype-engine.js') : root.APSQL_DATATYPE;
 
   var DIALECTS = ['Oracle', 'SQL Server', 'PostgreSQL', 'MySQL', 'Generic'];
 
-  /* ---------------------------------------------------------------------
-     Small string/SQL-sniffing helpers (regex-based, not a real parser)
-     --------------------------------------------------------------------- */
   function levenshtein(a, b) {
     a = String(a || ''); b = String(b || '');
     var m = a.length, n = b.length;
@@ -48,7 +24,7 @@
     if (!target || !candidates || !candidates.length) return null;
     var best = null, bestDist = Infinity;
     candidates.forEach(function (c) {
-      if (String(c).toUpperCase() === String(target).toUpperCase()) return; // already correct, no suggestion needed
+      if (String(c).toUpperCase() === String(target).toUpperCase()) return;
       var d = levenshtein(target, c);
       if (d < bestDist) { bestDist = d; best = c; }
     });
@@ -64,15 +40,9 @@
     return { primary: primary, joined: joined, all: (primary ? [primary] : []).concat(joined) };
   }
   function quoteIdentifierVariants(name) {
-    // Matches "NAME", 'NAME', [NAME], `NAME`, or a bare word NAME.
     return new RegExp('(["\'\\[`]?)\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\1', 'g');
   }
 
-  /* ---------------------------------------------------------------------
-     RULE 1 — Inconsistent data types inside a CASE ... ELSE ... END block
-     (the flagship scenario from the spec: numeric column, text THEN
-     branches, raw column reference in ELSE).
-     --------------------------------------------------------------------- */
   var RULE_CASE_ELSE_DATATYPE = {
     id: 'case-else-datatype',
     matchError: /inconsistent datatype|conversion failed|cannot convert|type mismatch|invalid.*use of|ORA-00932/i,
@@ -80,18 +50,16 @@
       if (!DATATYPE) return null;
       var caseRe = /\bCASE\b[\s\S]*?\bELSE\s+([A-Za-z_][\w\.]*)\s*(?=\bEND\b)/gi;
       var changes = []; var newSql = sql; var m; var anyFound = false;
-      // Work on a copy and replace iteratively (regex.exec on `sql`, splice into `newSql` by textual replace of the exact matched span, since ELSE targets are simple identifiers unlikely to collide elsewhere in a way that breaks correctness for this narrow, well-scoped pattern).
       while ((m = caseRe.exec(sql))) {
         var colRef = m[1];
         var bareCol = colRef.indexOf('.') !== -1 ? colRef.split('.').pop() : colRef;
         var tableForCol = colRef.indexOf('.') !== -1 ? colRef.split('.')[0] : (ctx.tables.primary || ctx.tables.all[0]);
         var schemaCol = tableForCol ? ctx.engine.getColumn(tableForCol, bareCol) : null;
         if (!schemaCol && ctx.tables.all.length) {
-          // column ref wasn't qualified and/or table guess was wrong — search all referenced tables
           for (var i = 0; i < ctx.tables.all.length && !schemaCol; i++) schemaCol = ctx.engine.getColumn(ctx.tables.all[i], bareCol);
         }
-        if (!schemaCol || !schemaCol.type) continue; // no schema info available — do not invent, skip
-        if (!DATATYPE.needsConversion(schemaCol.type)) continue; // already text-compatible or unrecognized type — leave unchanged
+        if (!schemaCol || !schemaCol.type) continue;
+        if (!DATATYPE.needsConversion(schemaCol.type)) continue;
         var replacement = DATATYPE.getCompatibleElseExpression(colRef, schemaCol.type, ctx.dialect);
         if (replacement === colRef) continue;
         var fromFragment = 'ELSE ' + colRef;
@@ -105,17 +73,13 @@
       if (!anyFound) return null;
       return {
         sql: newSql,
-        identified: 'The CASE expression returns text values in the THEN clauses but returns a ' + (changes.length === 1 ? 'non-text' : 'non-text') + ' column value directly in the ELSE clause, which most databases reject as an inconsistent-datatype error.',
+        identified: 'The CASE expression returns text values in the THEN clauses but returns a non-text column value directly in the ELSE clause, which most databases reject as an inconsistent-datatype error.',
         applied: 'The ELSE clause has been updated to convert the column to text (using the syntax appropriate for the ' + ctx.dialect + ' dialect) so that every branch of the CASE expression returns a compatible data type.',
         changes: changes
       };
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 1b — Inconsistent comparison types in WHERE (numeric column
-     compared to a quoted string, or vice versa).
-     --------------------------------------------------------------------- */
   var RULE_WHERE_DATATYPE = {
     id: 'where-comparison-datatype',
     matchError: /inconsistent datatype|conversion failed|cannot convert|type mismatch|incorrect syntax near|operator does not exist|ORA-00932/i,
@@ -132,7 +96,7 @@
         if (!schemaCol) continue;
         var category = DATATYPE ? DATATYPE.classify(schemaCol.type) : 'unknown';
         if (category !== 'numeric') continue;
-        if (!/^-?\d+(\.\d+)?$/.test(literal)) continue; // literal isn't actually numeric text — leave it (could be intentional)
+        if (!/^-?\d+(\.\d+)?$/.test(literal)) continue;
         var fromFragment = (m[1] || '') + colName + ' ' + op + " '" + literal + "'";
         var toFragment = (m[1] || '') + colName + ' ' + op + ' ' + literal;
         if (newSql.indexOf(fromFragment) !== -1) {
@@ -150,9 +114,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 2 — Unknown / invalid column name.
-     --------------------------------------------------------------------- */
   var RULE_INVALID_COLUMN = {
     id: 'invalid-column',
     matchError: /invalid identifier|invalid column name|column .* does not exist|unknown column|ORA-00904/i,
@@ -160,7 +121,7 @@
       var idMatch = ctx.errorText.match(/"([A-Za-z_][\w]*)"|'([A-Za-z_][\w]*)'|\[([A-Za-z_][\w]*)\]|`([A-Za-z_][\w]*)`/);
       var bad = idMatch ? (idMatch[1] || idMatch[2] || idMatch[3] || idMatch[4]) : null;
       if (!bad) return null;
-      if (!sql.match(quoteIdentifierVariants(bad))) return null; // the flagged identifier isn't even present in the supplied SQL
+      if (!sql.match(quoteIdentifierVariants(bad))) return null;
       var candidateCols = [];
       ctx.tables.all.forEach(function (t) { var tbl = ctx.engine.getTable(t); if (tbl) tbl.columns.forEach(function (c) { candidateCols.push(c.name); }); });
       var suggestion = findClosestName(bad, candidateCols);
@@ -177,9 +138,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 3 — Unknown / invalid table name.
-     --------------------------------------------------------------------- */
   var RULE_INVALID_TABLE = {
     id: 'invalid-table',
     matchError: /table or view does not exist|invalid object name|relation .* does not exist|doesn.t exist|ORA-00942/i,
@@ -187,7 +145,7 @@
       var idMatch = ctx.errorText.match(/"([A-Za-z_][\w]*)"|'([A-Za-z_][\w]*)"?|\[([A-Za-z_][\w]*)\]|`([A-Za-z_][\w]*)`/);
       var bad = idMatch ? (idMatch[1] || idMatch[2] || idMatch[3] || idMatch[4]) : (ctx.tables.primary && !ctx.engine.getTable(ctx.tables.primary) ? ctx.tables.primary : null);
       if (!bad) return null;
-      if (ctx.engine.getTable(bad)) return null; // it actually exists — nothing to fix here
+      if (ctx.engine.getTable(bad)) return null;
       var allTableNames = ctx.engine.getAllTables().map(function (t) { return t.name; });
       var suggestion = findClosestName(bad, allTableNames);
       if (!suggestion) return null;
@@ -203,9 +161,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 4 — GROUP BY missing a non-aggregated SELECT column.
-     --------------------------------------------------------------------- */
   var AGG_FUNCS = /^(COUNT|SUM|AVG|MIN|MAX)\s*\(/i;
   var RULE_GROUP_BY = {
     id: 'group-by-missing-column',
@@ -251,9 +206,6 @@
     return parts;
   }
 
-  /* ---------------------------------------------------------------------
-     RULE 5 — Date literal format mismatch.
-     --------------------------------------------------------------------- */
   var RULE_DATE_FORMAT = {
     id: 'date-format',
     matchError: /does not match the format string|literal does not match|conversion failed when converting date|invalid datetime format|date\/time field value out of range|ORA-01861|ORA-01858/i,
@@ -268,7 +220,7 @@
         if (!schemaCol) continue;
         var category = DATATYPE.classify(schemaCol.type);
         if (category !== 'date' && category !== 'timestamp') continue;
-        if (!/^\d{4}-\d{2}-\d{2}/.test(literal)) continue; // only handle the common ISO-ish literal shape
+        if (!/^\d{4}-\d{2}-\d{2}/.test(literal)) continue;
         var wrapped = DATATYPE.wrapDateLiteral("'" + literal + "'", ctx.dialect);
         var fromFragment = (m[1] || '') + colName + ' ' + op + " '" + literal + "'";
         var toFragment = (m[1] || '') + colName + ' ' + op + ' ' + wrapped;
@@ -287,9 +239,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 6 — "= NULL" / "<> NULL" anti-pattern (always safe to try).
-     --------------------------------------------------------------------- */
   var RULE_NULL_COMPARISON = {
     id: 'null-comparison',
     matchError: /null/i, alwaysTry: true,
@@ -307,9 +256,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 7 — Trailing comma before a following clause (common syntax slip).
-     --------------------------------------------------------------------- */
   var RULE_TRAILING_COMMA = {
     id: 'trailing-comma',
     matchError: /sql command not properly ended|incorrect syntax near|syntax error at or near|you have an error in your sql syntax|ORA-00933|ORA-00936/i, alwaysTry: true,
@@ -327,10 +273,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 8 — Dialect-correct NULL-coalescing function (NVL / ISNULL /
-     IFNULL / COALESCE), a common "incorrect function usage" scenario.
-     --------------------------------------------------------------------- */
   var NULLFN_BY_DIALECT = { 'Oracle': 'NVL', 'SQL Server': 'ISNULL', 'PostgreSQL': 'COALESCE', 'MySQL': 'IFNULL', 'Generic': 'COALESCE' };
   var ALL_NULLFNS = ['NVL', 'ISNULL', 'IFNULL', 'COALESCE'];
   var RULE_NULLFN_DIALECT = {
@@ -344,11 +286,10 @@
         var re = new RegExp('\\b' + fn + '\\s*\\(', 'gi');
         var m;
         while ((m = re.exec(sql))) {
-          // Extract the balanced-paren argument list to count top-level args.
           var start = m.index + m[0].length; var depth = 1; var i = start; var argText = '';
           while (i < sql.length && depth > 0) { var ch = sql[i]; if (ch === '(') depth++; if (ch === ')') depth--; if (depth > 0) argText += ch; i++; }
           var argCount = splitTopLevel(argText).length;
-          if ((correct === 'ISNULL' || correct === 'NVL' || correct === 'IFNULL') && argCount !== 2) continue; // unsafe to rename a variadic COALESCE(...) with !=2 args to a strictly-2-arg function
+          if ((correct === 'ISNULL' || correct === 'NVL' || correct === 'IFNULL') && argCount !== 2) continue;
           var fromFragment = fn + '(' + argText + ')';
           var toFragment = correct + '(' + argText + ')';
           if (newSql.indexOf(fromFragment) !== -1) { newSql = newSql.replace(fromFragment, toFragment); changes.push({ from: fromFragment, to: toFragment }); }
@@ -364,10 +305,6 @@
     }
   };
 
-  /* ---------------------------------------------------------------------
-     RULE 9 — Join condition referencing the wrong column, where the
-     schema documents a specific relationship between the two tables.
-     --------------------------------------------------------------------- */
   var RULE_JOIN_RELATIONSHIP = {
     id: 'join-relationship',
     matchError: /invalid.*join|ambiguous column|join condition|on clause/i,
@@ -378,7 +315,7 @@
       var joinedTable = m[1], leftTable = m[2], leftCol = m[3], rightTable = m[4], rightCol = m[5];
       var leftOk = ctx.engine.columnExists(leftTable, leftCol);
       var rightOk = ctx.engine.columnExists(rightTable, rightCol);
-      if (leftOk && rightOk) return null; // both sides already valid — nothing to fix here
+      if (leftOk && rightOk) return null;
       var rel = ctx.engine.findRelationship(leftTable, rightTable);
       if (!rel) return null;
       var fromFragment = leftTable + '.' + leftCol + ' = ' + rightTable + '.' + rightCol;
@@ -396,9 +333,6 @@
 
   var RULES = [RULE_CASE_ELSE_DATATYPE, RULE_WHERE_DATATYPE, RULE_INVALID_COLUMN, RULE_INVALID_TABLE, RULE_GROUP_BY, RULE_DATE_FORMAT, RULE_JOIN_RELATIONSHIP, RULE_NULL_COMPARISON, RULE_TRAILING_COMMA, RULE_NULLFN_DIALECT];
 
-  /* ---------------------------------------------------------------------
-     Best-effort dialect auto-detection from the error message text.
-     --------------------------------------------------------------------- */
   function detectDialectFromError(errorText) {
     var t = String(errorText || '');
     if (/ORA-\d{5}/i.test(t)) return 'Oracle';
@@ -408,19 +342,6 @@
     return null;
   }
 
-  /**
-   * rectify(sql, errorText, engine, dialect)
-   *   sql       — the SQL text that produced the error.
-   *   errorText — the full pasted database error message.
-   *   engine    — a schema-engine.js instance (getTable/getColumn/
-   *               getAllTables/findRelationship/columnExists), the same
-   *               "effective engine" object used throughout the rest of
-   *               this application.
-   *   dialect   — one of the five supported dialect labels.
-   *
-   * Returns { correctedSql, changed, errorIdentified, correctionApplied,
-   *           changes: [{from,to}], ruleId }.
-   */
   function rectify(sql, errorText, engine, dialect) {
     sql = String(sql || '');
     errorText = String(errorText || '');
@@ -431,13 +352,11 @@
       return { correctedSql: sql, changed: false, errorIdentified: 'No SQL was supplied to analyze.', correctionApplied: 'Please paste the SQL query that produced the error in Box 2, then try again.', changes: [], ruleId: null };
     }
 
-    // First pass: rules whose matchError() pattern is found in the pasted error text.
     var matched = RULES.filter(function (r) { return r.matchError && r.matchError.test(errorText); });
     for (var i = 0; i < matched.length; i++) {
       var res = matched[i].apply(sql, ctx);
       if (res) return { correctedSql: res.sql, changed: true, errorIdentified: res.identified, correctionApplied: res.applied, changes: res.changes, ruleId: matched[i].id };
     }
-    // Second pass: safety-net rules that are always worth trying even if the error text didn't specifically name them, provided they actually find something concrete to fix.
     var fallback = RULES.filter(function (r) { return r.alwaysTry && matched.indexOf(r) === -1; });
     for (var j = 0; j < fallback.length; j++) {
       var res2 = fallback[j].apply(sql, ctx);

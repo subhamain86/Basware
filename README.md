@@ -1,10 +1,9 @@
-# AP-SQL Assistant — Version 10.0
+# AP-SQL Assistant — Version 10.1
 
-A schema-aware SQL generator. Version 10.0 introduces two major
-enhancements: data-type-aware Decode (so Decode's generated `CASE`
-expressions never trigger a datatype-mismatch database error), and a
-brand-new **Error Rectifier** page that analyzes a real database error
-together with the SQL that caused it, and proposes a corrected query.
+A schema-aware SQL generator. Version 10.1 makes "Describe What You Need"
+a first-class way to build a query — not just a note field that gets
+mentioned in the output — in both the Read Only Query Builder and the
+Query Builder for CR.
 
 Open `index.html` directly in any modern browser. **Requires internet
 access** to load Bootstrap 5.3, Bootstrap Icons, and Google Fonts from
@@ -13,147 +12,150 @@ required.
 
 Crafted by Subham Ain.
 
-## What changed in Version 10.0
+## What changed in Version 10.1
 
-### 1. Data-type-aware Decode
-Previously, Decode always generated:
-```sql
-CASE
-    WHEN LOGIN_TYPE = 0 THEN 'Forms'
-    WHEN LOGIN_TYPE = 1 THEN 'Windows Domain'
-    ELSE LOGIN_TYPE
-END
-```
-If `LOGIN_TYPE` is a numeric column, Oracle (and many other databases)
-reject this outright, since the `THEN` branches return text but the
-`ELSE` branch returns a number:
-```
-ORA-00932: inconsistent datatypes: expected CHAR got NUMBER
-```
+### 1. "Describe What You Need" now has its own Build Query button
+In both builders, the "Describe What You Need" card now has its own
+**Build Query** button directly beneath it. Clicking it — or the
+pre-existing Build Query button below the tabs, which now behaves
+identically — builds a query using:
 
-Decode now inspects the selected column's **Data Type** from the active
-schema before generating SQL, and — only when that column is genuinely
-non-text (`NUMBER`, `INTEGER`, `DECIMAL`, `FLOAT`, `DATE`, `TIMESTAMP`,
-`BOOLEAN`, and their common synonyms) — rewrites the `ELSE` branch to a
-**dialect-appropriate** "convert to text" expression:
+- **The description alone**, with nothing selected manually at all;
+- **Manual selections alone**, exactly as before, with no description
+  text (zero change in behavior for existing workflows); or
+- **Both together**, where manual choices always take precedence and the
+  description only ever fills in genuine gaps.
 
-| Dialect | Example |
-|---|---|
-| Oracle | `ELSE TO_CHAR(LOGIN_TYPE)` |
-| SQL Server | `ELSE CONVERT(VARCHAR(4000), LOGIN_TYPE)` |
-| PostgreSQL | `ELSE LOGIN_TYPE::text` |
-| MySQL | `ELSE CAST(LOGIN_TYPE AS CHAR)` |
-| Generic | `ELSE CAST(LOGIN_TYPE AS VARCHAR(4000))` |
+For example, in the Read Only Query Builder, typing *"overdue invoices
+for a supplier in the last 30 days, show invoice number, gross amount and
+due date"* into the description box and clicking Build Query — with
+nothing ticked anywhere else — produces a complete, validated query:
+matching the `IA_INVOICE` table, the `INVOICE_NUMBER`, `GROSS_SUM` (via
+its alias "Amount"), and `DUE_DATE` columns, and a `DUE_DATE >= <30 days
+ago>` filter, all derived purely from the sentence.
 
-This is never hard-coded to Oracle — the exact conversion syntax is
-chosen from the currently selected SQL dialect. When a column is already
-text-typed, or the schema simply doesn't document a data type for it, the
-`ELSE` branch is left completely unchanged — Decode never invents a data
-type it doesn't actually know.
+In the Query Builder for CR, typing *"update the invoice status to 40
+where invoice id is 123"* and clicking Build Query — again with nothing
+selected manually — switches the Query Type selector to UPDATE, picks the
+`IA_INVOICE` table, sets `STATUS = 40`, and adds the `INVOICE_ID = 123`
+WHERE condition, then builds the exact same validated SQL as if every
+step had been clicked by hand. The mandatory WHERE-condition safety net
+is never bypassed by a description alone — describing an UPDATE or DELETE
+with no WHERE-style clause still requires the explicit override checkbox,
+exactly as before.
 
-**UI**: when Decode is ticked on a column, a small panel now shows the
-detected **Data Type** and a choice — **Convert to compatible text**
-(the safe default) or **Keep original value** (an explicit opt-out that
-reproduces the exact pre-V10 SQL). If no data type is available in the
-schema, a short note explains that the original value will be used, and
-no choice is needed.
+After a description-driven build, an **"Interpreted from your
+description"** summary appears beneath the description box, listing
+exactly what was matched (tables, columns, filters, sort, limit, and so
+on), and every affected part of the manual UI (checkboxes, the Pick Table
+dropdown, filter rows, the Query Type selector) visibly updates to match
+— so what got picked up from the description is never a mystery, and can
+be reviewed or adjusted before building again.
 
-### 2. Error Rectifier (new page)
-A brand-new, independent page — added as its own entry in the existing
-hamburger menu (Schema → Query Builder → **Error Rectifier** → Theme →
-About), with no other changes to the menu's structure or design.
+### 2. New module: `nl-query-engine.js`
+A new, pure, dependency-light interpretation module reads the description
+text and matches it against the **active schema only** — table names,
+column names, aliases, and module labels — with no hard-coded
+business-domain synonyms, exactly consistent with how Decode and the
+Error Rectifier already treat the schema as the single source of truth.
+It recognizes:
 
-Three boxes, exactly as needed for the workflow:
+- Table and column mentions (including by alias, e.g. "gross amount" for
+  a column aliased "Amount").
+- Filter phrasings: equals/is, not equal, contains, starts with, ends
+  with, greater/less than (and or-equal-to variants), and between.
+- **Decode-aware filtering** — a plain-language status word like
+  "approved" is matched against the column's actual schema-defined decode
+  labels and translated into the correct underlying code.
+- "last N days" against the best available date/timestamp column.
+- Sort phrasing ("sorted by X descending"/"newest first"/etc.), "top N"
+  limits, and "unique"/"no duplicates" for DISTINCT.
+- Hierarchy/org-chart intent, including disambiguating between multiple
+  self-referencing tables in the schema by word-overlap when the phrase
+  doesn't name one exactly (e.g. "reporting chain for users" resolves to
+  the table whose name relates to "users", not a different
+  self-referencing table for "suppliers").
+- For Change Requests: Query Type detection (INSERT/UPDATE/DELETE) from
+  whichever command keyword appears first, plus `SET X to Y` / `X = Y` /
+  `X is Y` value assignments and `WHERE`-style filter phrasing — carefully
+  segmented at the word "where" so a WHERE-clause column is never
+  mistaken for an assignment target, or vice versa.
 
-1. **Enter Database Error** — paste the complete error message (Oracle,
-   SQL Server, PostgreSQL, MySQL, or another supported dialect).
-2. **Enter Current SQL Query** — paste the SQL that produced it.
-3. **Rectified SQL** — the corrected query, generated after clicking
-   **Rectify SQL**, together with a plain-language **Explanation**
-   ("Error Identified" / "Correction Applied") and, where applicable, a
-   **What Changed** before/after list. **Copy SQL** and **Copy
-   Explanation** buttons are provided.
+If nothing can be confidently matched, the interpretation is honestly
+empty (with a plain-language note explaining why) rather than guessing —
+the same "do not invent" principle already used throughout this
+application.
 
-The SQL dialect is auto-detected from the pasted error where possible
-(recognizing `ORA-`, SQL Server's `Msg #, Level #`, PostgreSQL's `ERROR:`
-style, and MySQL's characteristic phrasing) and the dropdown updates
-automatically — you can always change it manually too.
-
-**How correction works**: a new rule-based engine (`error-rectifier-engine.js`)
-cross-references every table and column it finds in the SQL against the
-**active schema** (the same one used everywhere else in this
-application), and only proposes a change when it has found something
-concrete and defensible — it never invents a table or column that
-doesn't exist. It recognizes, among others: inconsistent CASE/ELSE and
-WHERE-clause data types (reusing the same Decode engine described above),
-unknown/misspelled columns and tables (suggesting the closest real match
-in the schema), missing `GROUP BY` columns, date-literal format
-mismatches, `= NULL` / `<> NULL` anti-patterns, stray trailing commas,
-dialect-incorrect NULL-handling functions (`NVL`/`ISNULL`/`IFNULL`/`COALESCE`),
-and join conditions that reference the wrong columns (correcting them
-using the schema's documented relationship). If nothing applicable is
-found, it says so plainly rather than guessing.
-
-**Safety**: exactly like the rest of this application, the Error
-Rectifier only ever analyzes text and produces corrected SQL text. It
-never executes SQL, never connects to a database, and never modifies the
-active schema — this is stated explicitly on the page itself.
+### 3. Zero changes to the core query-generation engines
+The interpretation is applied by mutating the **exact same** UI state
+(`selectedTables`, column checkboxes, filter conditions, sort rows, the
+CR command/table/columns/filters) that manual clicking already
+populates, then falling through to the completely unmodified
+`generateSql()` / `buildCrQuery()` pipeline. This means `sql-engine.js`,
+`cr-engine.js`, `decode-engine.js`, `filter-engine.js`, and
+`validation-engine.js` required **no changes whatsoever** for this
+release — dramatically reducing regression risk, and confirmed by 141/141
+pre-existing unit tests continuing to pass unmodified.
 
 ## Project structure
 ```
 ap-sql-assistant/
-  index.html                 Application shell, including the new Error Rectifier page
-  css/styles.css              Adds Decode data-type panel + Error Rectifier page styling
-  schema/schema-sample.js     Embedded sample schema — now includes a LOGIN_TYPE (NUMBER)
-                                column with decode values on ADM_USER_DATA, matching the
-                                worked example from the V10 specification
+  index.html                 Application shell — adds a Build Query button + an
+                                "Interpreted from your description" box to both
+                                builders' Describe What You Need cards
+  css/styles.css              Adds styling for the new action row + interpretation box
+  schema/schema-sample.js     Embedded sample schema — unchanged
   js/
     schema-engine.js          Read-only schema accessors — unchanged
-    datatype-engine.js          NEW — data-type classification + dialect-aware text conversion
+    datatype-engine.js          Data-type classification + dialect-aware conversion — unchanged
     filter-engine.js              Multi-column WHERE filter engine — unchanged
-    decode-engine.js               Decode CASE generation — ELSE branch now data-type/dialect-aware
-    validation-engine.js            Schema-aware request validation — unchanged
-    sql-engine.js                    Read-only SELECT/WITH generator — passes dialect + column
-                                       type through to decode-engine.js; joins unchanged (V9.2)
-    cr-engine.js                      INSERT/UPDATE/DELETE generator — unchanged
-    schema-tools.js                    Import/export/validate/diff/merge/relationships — unchanged
-    relationship-store.js               Session-only manual relationships — unchanged
-    suggestion-engine.js                 Corrective suggestions — unchanged
-    optimize-engine.js                    SQL Optimization Advisor — unchanged
-    error-rectifier-engine.js               NEW — the Error Rectifier's rule-based correction engine
-    app.js                                    DOM wiring — Decode data-type UI + Error Rectifier page
+    decode-engine.js                Decode CASE generation — unchanged
+    validation-engine.js              Schema-aware request validation — unchanged
+    sql-engine.js                       Read-only SELECT/WITH generator — unchanged
+    cr-engine.js                          INSERT/UPDATE/DELETE generator — unchanged
+    schema-tools.js                        Import/export/validate/diff/merge — unchanged
+    relationship-store.js                    Session-only manual relationships — unchanged
+    suggestion-engine.js                       Corrective suggestions — wording updated
+    optimize-engine.js                           SQL Optimization Advisor — unchanged
+    error-rectifier-engine.js                      Error Rectifier's correction engine — unchanged
+    nl-query-engine.js                              NEW — description-to-selection interpreter
+    app.js                                            DOM wiring — new Build Query buttons +
+                                                       description-to-UI-state merge logic
   test/                       Node test suite
     run-all.js                  Pure-logic test runner (npm test)
     dom-smoke.js                 End-to-end DOM/Bootstrap simulation smoke test (npm run test:smoke)
-    datatype-engine.test.js       NEW
-    error-rectifier-engine.test.js NEW
+    nl-query-engine.test.js       NEW — 32 tests covering every matching/merge rule
 ```
 
 ## Running the test suites
 ```bash
-npm test            # 153 pure-logic unit tests across all engine modules
-npm run test:smoke  # 24 end-to-end simulation checks
+npm test            # 141 pure-logic unit tests across all engine modules
+npm run test:smoke  # 28 end-to-end simulation checks
 ```
-The unit suite includes a dedicated reproduction of the exact
-`LOGIN_TYPE` / `ORA-00932` scenario from the specification, confirmed to
-produce the exact corrected SQL shown in the spec, across all five
-supported dialects. The smoke test drives the real `app.js` through a
-full, real click-to-result Error Rectifier round trip — including dialect
-auto-detection actually updating the dropdown — rather than only reading
-the code.
+The unit suite includes an exact reproduction of the application's own
+placeholder example sentence, confirmed to correctly identify the right
+table, columns, and a computed "last 30 days" date filter. The smoke test
+proves — by actually clicking the real, new button in a simulated DOM,
+not just reading the code — that a query can be built from description
+text alone with zero manual selections, that both Build Query buttons
+behave identically, that a manual selection and a description merge
+sensibly rather than one overriding the other, and that the WHERE-safety
+net can never be silently bypassed by a description.
 
 ## Known limitations
 - Legacy binary `.xls` export/import (OLE2/BIFF8) is not included. JSON,
   CSV, DOCX, XLSX and DOC (RTF) are all fully supported.
 - **Requires internet access** to load Bootstrap 5.3, Bootstrap Icons, and
   Google Fonts from their CDNs.
-- The Error Rectifier is a lightweight, regex/heuristic-based SQL
-  "sniffer," not a full SQL parser — a deliberate, honest trade-off for a
-  dependency-free, client-side tool. It is scoped to recognize a broad,
-  realistic set of common error categories, and always says so plainly
-  when it cannot confidently determine a fix, rather than guessing.
+- The description interpreter is a lightweight, schema-driven pattern
+  matcher, not a full natural-language understanding system. It works
+  best with clear phrasing that names tables/columns close to their real
+  schema names or aliases, and filter/sort/limit phrases similar to the
+  examples above. It never invents a table, column, or value it can't
+  confidently identify from the schema.
+- The description interpreter does not use hard-coded business-domain
+  synonyms (e.g. "vendor" for "supplier") — matching is based solely on
+  what the active schema documents, consistent with this application's
+  schema-as-source-of-truth principle throughout.
 - Schema persistence uses the browser's `localStorage`, which is scoped
   per browser/device. It is not a cross-device sync mechanism.
-- The Decode "convert to text" rewrite only ever changes the `ELSE`
-  branch of a decode expression; it never alters the `WHEN`/`THEN`
-  values, column/table selections, or any other part of the query.

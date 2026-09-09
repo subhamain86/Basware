@@ -10,7 +10,7 @@ test('buildTablesFromFlatRows groups + decode/fk', function () { var r = TOOLS.b
 test('validateSchema catches duplicates', function () { assertFalse(TOOLS.validateSchema([{ name: 'T1', columns: [{ name: 'A' }] }, { name: 'T1', columns: [{ name: 'B' }] }]).valid); assertTrue(TOOLS.validateSchema([{ name: 'T3', columns: [{ name: 'A' }] }]).valid); });
 test('computeDiff counts additions', function () { assertEqual(TOOLS.computeDiff(schema, [{ name: 'NEW', module: 'IA', columns: [{ name: 'X' }] }]).addedTableCount, 1); });
 test('mergeSchemas adds tables + bumps version', function () { var r = TOOLS.mergeSchemas(schema, [{ name: 'BRAND_NEW', module: 'ADM', columns: [{ name: 'ID' }] }], 'x.json'); assertTrue(r.addedTables.indexOf('BRAND_NEW') !== -1); assertEqual(r.previousSchemaBackup.tables.length, schema.tables.length); });
-test('bumpVersion increments', function () { assertEqual(TOOLS.bumpVersion('10.4'), '10.5'); });
+test('bumpVersion increments', function () { assertEqual(TOOLS.bumpVersion('10.5'), '10.6'); });
 test('writeZip local header signature', function () { var z = TOOLS.writeZip([{ name: 'a.txt', data: new TextEncoder().encode('hi') }]); assertEqual(z[0], 0x50); assertEqual(z[1], 0x4b); });
 test('detectFormat', function () { assertEqual(TOOLS.detectFormat('a.json'), '.json'); assertEqual(TOOLS.detectFormat('a.exe'), null); });
 test('buildEmptySchema clears tables but keeps name/labels, never mutates input', function () {

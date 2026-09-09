@@ -23,6 +23,13 @@ function makeFakeGitHubFetch(opts) {
       store.sha = newSha;
       return Promise.resolve(fakeResponse(store.sha === newSha && calls.length === 1 ? 201 : 200, { content: { sha: newSha } }));
     }
+    if (method === 'DELETE') {
+      var delBody = JSON.parse(init.body);
+      if (store.content == null) return Promise.resolve(fakeResponse(404, {}));
+      if (delBody.sha !== store.sha) return Promise.resolve(fakeResponse(409, {}));
+      store.content = null; store.sha = null;
+      return Promise.resolve(fakeResponse(200, {}));
+    }
     return Promise.resolve(fakeResponse(500, {}));
   }
   function fakeResponse(status, jsonBody) {
@@ -193,6 +200,51 @@ test('end-to-end: create, then read it back, then update it, then read the updat
     .then(function (r1) { assertTrue(r1.exists); assertEqual(r1.schema.schema_name, 'V1'); return G.pushSchemaToGitHub(VALID_CONFIG, { schema_name: 'V2', tables: [] }, r1.sha, fetchImpl); })
     .then(function () { return G.fetchRemoteSchema(VALID_CONFIG, fetchImpl); })
     .then(function (r2) { assertTrue(r2.exists); assertEqual(r2.schema.schema_name, 'V2'); });
+});
+
+/* ---- V10.5: deleteRemoteFile ---- */
+test('deleteRemoteFile rejects when config is incomplete, without making any network call', function () {
+  var fetchImpl = makeFakeGitHubFetch({});
+  return G.deleteRemoteFile({}, 'some-sha', fetchImpl).then(function () { throw new Error('expected rejection'); }, function (err) {
+    assertIncludes(err.message, 'not fully configured');
+    assertEqual(fetchImpl._calls.length, 0);
+  });
+});
+test('deleteRemoteFile rejects clearly when no sha is supplied at all', function () {
+  var fetchImpl = makeFakeGitHubFetch({ initialContent: '{}', initialSha: 's1' });
+  return G.deleteRemoteFile(VALID_CONFIG, null, fetchImpl).then(function () { throw new Error('expected rejection'); }, function (err) { assertIncludes(err.message, 'current version'); });
+});
+test('deleteRemoteFile successfully removes an existing file with the correct current sha', function () {
+  var fetchImpl = makeFakeGitHubFetch({ initialContent: JSON.stringify({ schema_name: 'ToDelete', tables: [] }), initialSha: 'sha-1' });
+  return G.deleteRemoteFile(VALID_CONFIG, 'sha-1', fetchImpl).then(function (result) {
+    assertTrue(result.deleted);
+    assertEqual(fetchImpl._store.content, null);
+  });
+});
+test('deleteRemoteFile rejects with {conflict:true} when the file was already changed (stale sha, 409)', function () {
+  var fetchImpl = makeFakeGitHubFetch({ initialContent: JSON.stringify({ schema_name: 'X', tables: [] }), initialSha: 'sha-current' });
+  return G.deleteRemoteFile(VALID_CONFIG, 'sha-stale', fetchImpl).then(function () { throw new Error('expected rejection'); }, function (err) { assertTrue(err.conflict === true); });
+});
+test('deleteRemoteFile rejects with {conflict:true} when the file no longer exists (404)', function () {
+  var fetchImpl = makeFakeGitHubFetch({});
+  return G.deleteRemoteFile(VALID_CONFIG, 'sha-anything', fetchImpl).then(function () { throw new Error('expected rejection'); }, function (err) { assertTrue(err.conflict === true); });
+});
+test('deleteRemoteFile rejects clearly on 401/403/422', function () {
+  var f1 = makeFakeGitHubFetch({ initialContent: '{}', initialSha: 's' }); f1._forceNextStatus(401);
+  var f2 = makeFakeGitHubFetch({ initialContent: '{}', initialSha: 's' }); f2._forceNextStatus(403);
+  var f3 = makeFakeGitHubFetch({ initialContent: '{}', initialSha: 's' }); f3._forceNextStatus(422);
+  return Promise.all([
+    G.deleteRemoteFile(VALID_CONFIG, 's', f1).then(function () { throw new Error('expected rejection'); }, function (err) { assertIncludes(err.message, 'Unauthorized'); }),
+    G.deleteRemoteFile(VALID_CONFIG, 's', f2).then(function () { throw new Error('expected rejection'); }, function (err) { assertIncludes(err.message, 'Forbidden'); }),
+    G.deleteRemoteFile(VALID_CONFIG, 's', f3).then(function () { throw new Error('expected rejection'); }, function (err) { assertIncludes(err.message, '422'); })
+  ]);
+});
+test('end-to-end: create a file, then successfully delete it via deleteRemoteFile, then confirm fetchRemoteSchema reports it gone', function () {
+  var fetchImpl = makeFakeGitHubFetch({});
+  return G.pushSchemaToGitHub(VALID_CONFIG, { schema_name: 'Temp', tables: [] }, null, fetchImpl)
+    .then(function (pushResult) { return G.deleteRemoteFile(VALID_CONFIG, pushResult.sha, fetchImpl); })
+    .then(function (delResult) { assertTrue(delResult.deleted); return G.fetchRemoteSchema(VALID_CONFIG, fetchImpl); })
+    .then(function (finalCheck) { assertEqual(finalCheck.exists, false); });
 });
 
 test('describeGitHubSyncStatus: not configured yet', function () {

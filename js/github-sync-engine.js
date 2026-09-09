@@ -23,8 +23,6 @@
     var clean = String(b64 || '').replace(/[\r\n\s]/g, '');
     var lookup = {};
     for (var i = 0; i < B64_CHARS.length; i++) lookup[B64_CHARS[i]] = i;
-    var padCount = 0;
-    if (clean.endsWith('==')) padCount = 2; else if (clean.endsWith('=')) padCount = 1;
     var cleanNoPad = clean.replace(/=+$/, '');
     var byteLen = Math.floor((cleanNoPad.length * 6) / 8);
     var bytes = new Uint8Array(byteLen);
@@ -127,6 +125,38 @@
     }, function () { return Promise.reject(new Error('Could not reach GitHub (network error). Check your internet connection and try again.')); });
   }
 
+  /**
+   * deleteRemoteFile(config, sha, fetchImpl) — V10.5 addition. Genuinely
+   * removes the file at the configured shared schema location from the
+   * repository (not just overwriting it with an empty schema), via
+   * GitHub's DELETE Contents API. `sha` must be the current sha of the
+   * file being deleted (obtained from a prior fetchRemoteSchema() call);
+   * this is required by GitHub's API as a safety check against deleting
+   * a version the caller hasn't actually seen. Resolves on success (200);
+   * rejects with a clear message for 401/403/404/409/422, and with
+   * {conflict:true} specifically for 409/404 (someone already
+   * changed/removed the file) so callers can re-fetch and decide what to
+   * do next, mirroring pushSchemaToGitHub()'s conflict handling.
+   */
+  function deleteRemoteFile(config, sha, fetchImpl) {
+    fetchImpl = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+    if (!fetchImpl) return Promise.reject(new Error('The fetch API is not available in this environment.'));
+    if (!isConfigComplete(config)) return Promise.reject(new Error('GitHub sync is not fully configured (repository owner, name, file path, and a Personal Access Token are all required).'));
+    if (!sha) return Promise.reject(new Error('Cannot delete the shared schema file without first knowing its current version (sha). Try checking/syncing first.'));
+    var body = { message: 'Delete AP-SQL Assistant shared schema (' + new Date().toISOString() + ')', sha: sha, branch: normalizeBranch(config) };
+    return fetchImpl(buildContentsWriteUrl(config), {
+      method: 'DELETE', headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders(config)), body: JSON.stringify(body)
+    }).then(function (res) {
+      if (res.status === 409) { var err = new Error('Someone else updated the shared schema file since this browser last checked it, so it was not deleted.'); err.conflict = true; return Promise.reject(err); }
+      if (res.status === 404) { var err2 = new Error('The shared schema file no longer exists at that location (it may already have been deleted).'); err2.conflict = true; return Promise.reject(err2); }
+      if (res.status === 401) return Promise.reject(new Error('GitHub rejected the Personal Access Token (401 Unauthorized).'));
+      if (res.status === 403) return Promise.reject(new Error('GitHub denied this delete (403 Forbidden). The token may be missing the required Contents: Read and write permission.'));
+      if (res.status === 422) return Promise.reject(new Error('GitHub rejected this delete (422) \u2014 the repository, branch, or file path may not be valid.'));
+      if (res.status !== 200) return Promise.reject(new Error('GitHub returned an unexpected error (HTTP ' + res.status + ') while deleting the shared schema file.'));
+      return { deleted: true };
+    }, function () { return Promise.reject(new Error('Could not reach GitHub (network error). Check your internet connection and try again.')); });
+  }
+
   function describeGitHubSyncStatus(state) {
     state = state || {};
     if (state.error) return { level: 'error', text: state.error };
@@ -140,7 +170,7 @@
     utf8ToBase64: utf8ToBase64, base64ToUtf8: base64ToUtf8,
     createConfigStore: createConfigStore, isConfigComplete: isConfigComplete, normalizeBranch: normalizeBranch,
     buildContentsUrl: buildContentsUrl, buildContentsWriteUrl: buildContentsWriteUrl,
-    fetchRemoteSchema: fetchRemoteSchema, pushSchemaToGitHub: pushSchemaToGitHub,
+    fetchRemoteSchema: fetchRemoteSchema, pushSchemaToGitHub: pushSchemaToGitHub, deleteRemoteFile: deleteRemoteFile,
     describeGitHubSyncStatus: describeGitHubSyncStatus
   };
   if (typeof module === 'object' && module.exports) module.exports = API;

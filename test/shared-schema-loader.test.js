@@ -10,7 +10,6 @@ function fakeFetch(status, bodyText, opts) {
   };
 }
 
-/* ---- buildFetchUrl ---- */
 test('buildFetchUrl uses the default path when none is supplied', function () {
   assertIncludes(S.buildFetchUrl(), 'schema/shared-schema.json');
 });
@@ -26,7 +25,6 @@ test('buildFetchUrl respects a fully custom path', function () {
   assertIncludes(S.buildFetchUrl('custom/path/my-schema.json'), 'custom/path/my-schema.json?t=');
 });
 
-/* ---- fetchSharedSchema ---- */
 test('fetchSharedSchema resolves {found:false} for a 404 (no shared schema published yet) — not treated as an error', function () {
   return S.fetchSharedSchema('schema/shared-schema.json', fakeFetch(404, '')).then(function (result) {
     assertEqual(result.found, false);
@@ -74,7 +72,6 @@ test('fetchSharedSchema always requests with cache: no-store, so periodic re-che
   });
 });
 
-/* ---- describeSharedSchemaStatus (pure) ---- */
 test('describeSharedSchemaStatus: not yet checked', function () {
   assertEqual(S.describeSharedSchemaStatus({ checked: false }).level, 'checking');
 });
@@ -97,7 +94,6 @@ test('describeSharedSchemaStatus handles a completely empty state object without
   assertEqual(S.describeSharedSchemaStatus({}).level, 'checking');
 });
 
-/* ---- End-to-end style: simulate the exact "zero-config, every device/browser" scenario ---- */
 test('end-to-end: a brand new device/browser with zero prior configuration still picks up a schema published at the well-known path', function () {
   var publishedSchema = { schema_name: 'Company-Wide AP Schema', schema_version: '5.0', tables: [{ name: 'IA_INVOICE', module: 'IA', columns: [{ name: 'INVOICE_ID', type: 'INTEGER', primary_key: true }] }] };
   var fetchImpl = fakeFetch(200, JSON.stringify(publishedSchema));

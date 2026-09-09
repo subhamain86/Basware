@@ -14,6 +14,8 @@
       suggest: 'Go to the Tables & Columns tab and select at least one table, describe your requirement in the text box and click Build Query, or use both together.' },
     { match: function (m) { return /needs both a from and a to value/.test(m); },
       suggest: 'Fill in both the "from" and "to" values for your Between filter, or switch to a different condition if you only have one value.' },
+    { match: function (m) { return /needs at least one value/.test(m); },
+      suggest: 'For an "Is one of" / "Is not one of" filter, type one or more values separated by commas (e.g. 10, 20, 40), then try building the query again.' },
     { match: function (m) { return /A WHERE condition is required/.test(m); },
       suggest: 'Add at least one filter condition in the Filters card so the database knows exactly which records to change, or tick the explicit override checkbox if you are certain you want no WHERE condition.' },
     { match: function (m) { return /At least one column must be selected for INSERT/.test(m); },

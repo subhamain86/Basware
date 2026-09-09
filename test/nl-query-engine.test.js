@@ -79,6 +79,38 @@ test('decode-label matching does not override an already-matched explicit operat
   assertEqual(statusFilters[0].value, '10');
 });
 
+test('V10.5: "is one of" phrasing produces an "in" operator with the raw comma-separated value list', function () {
+  var r = NLQ.interpretDescription('show invoices where status is one of 10, 40', engine, {});
+  var f = r.filterConditions.filter(function (c) { return c.column === 'STATUS'; })[0];
+  assertTrue(f !== undefined);
+  assertEqual(f.operator, 'in');
+  assertEqual(f.value, '10, 40');
+});
+test('V10.5: "is not one of" phrasing produces a "not_in" operator', function () {
+  var r = NLQ.interpretDescription('show invoices where status is not one of 10, 40', engine, {});
+  var f = r.filterConditions.filter(function (c) { return c.column === 'STATUS'; })[0];
+  assertEqual(f.operator, 'not_in');
+  assertEqual(f.value, '10, 40');
+});
+test('V10.5: "is any of" is accepted as a synonym for "is one of"', function () {
+  var r = NLQ.interpretDescription('show invoices where status is any of 10, 90', engine, {});
+  var f = r.filterConditions.filter(function (c) { return c.column === 'STATUS'; })[0];
+  assertEqual(f.operator, 'in');
+});
+test('V10.5: adding "is one of" support does not break the plain "is" (eq) pattern for a single value', function () {
+  var r = NLQ.interpretDescription('show invoices where status is 40', engine, {});
+  var f = r.filterConditions.filter(function (c) { return c.column === 'STATUS'; })[0];
+  assertEqual(f.operator, 'eq');
+  assertEqual(f.value, '40');
+});
+test('V10.5: "is one of" does not shadow "between" phrasing for a different column in the same sentence', function () {
+  var r = NLQ.interpretDescription('show invoices where status is one of 10, 40 and gross amount between 100 and 500', engine, {});
+  var statusF = r.filterConditions.filter(function (c) { return c.column === 'STATUS'; })[0];
+  var amountF = r.filterConditions.filter(function (c) { return c.column === 'GROSS_SUM'; })[0];
+  assertEqual(statusF.operator, 'in');
+  assertEqual(amountF.operator, 'between');
+});
+
 test('sort with explicit direction word', function () {
   var r = NLQ.interpretDescription('invoices sorted by due date descending', engine, {});
   assertEqual(r.orderBy.length, 1);
@@ -156,6 +188,12 @@ test('DELETE with a WHERE clause', function () {
   assertEqual(r.table, 'IA_INVOICE');
   assertEqual(r.filterConditions.length, 1);
   assertEqual(r.filterConditions[0].column, 'INVOICE_ID');
+});
+test('V10.5: DELETE with an "is one of" WHERE clause', function () {
+  var r = NLQ.interpretCrDescription('delete the invoice where status is one of 0, 90', engine, {});
+  assertEqual(r.command, 'DELETE');
+  assertEqual(r.filterConditions[0].operator, 'in');
+  assertEqual(r.filterConditions[0].value, '0, 90');
 });
 test('command detection prefers whichever keyword appears earliest in the text', function () {
   assertEqual(NLQ.detectCrCommand('please delete this, do not update it'), 'DELETE');

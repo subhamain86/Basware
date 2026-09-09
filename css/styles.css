@@ -201,8 +201,6 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .github-sync-lastcheck { font-size: .74rem; color: var(--bs-secondary-color); margin-top: .3rem; }
 .github-token-warning { font-size: .76rem; background: rgba(244,132,42,.08); border: 1px dashed var(--grad-orange-b); border-radius: 8px; padding: .5rem .7rem; margin-bottom: .6rem; }
 [data-bs-theme="dark"] .github-token-warning { background: rgba(244,132,42,.14); }
-
-/* ---------------- V10.4: Live Shared Schema (zero-config auto-load) ---------------- */
 .shared-schema-strip { display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem; border-radius: 8px; font-size: .82rem; margin-bottom: .75rem; flex-wrap: wrap; }
 .shared-schema-strip.level-checking { background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); }
 .shared-schema-strip.level-live { background: rgba(34,163,90,.10); color: #146c3a; }
@@ -215,6 +213,21 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .shared-schema-strip .btn { flex: 0 0 auto; }
 .shared-schema-default-note { font-size: .76rem; color: var(--bs-secondary-color); margin-top: .4rem; }
 .shared-schema-path-hint { font-family: var(--bs-font-monospace); font-size: .78rem; background: var(--bs-tertiary-bg); padding: .1rem .4rem; border-radius: 4px; }
+
+/* ---------------- V10.5: filter panel — "Is one of" / "Is not one of" multi-value input ---------------- */
+.filter-value-input.multi-value { font-family: var(--bs-font-monospace); font-size: .8rem; }
+.filter-condition-row .multi-value-hint { flex-basis: 100%; font-size: .72rem; color: var(--bs-secondary-color); margin-top: -2px; }
+
+/* ---------------- V10.5: Upload / Delete directly at the Shared Schema Location ---------------- */
+.shared-location-action-box { border: 1px dashed var(--brand); border-radius: 10px; padding: .75rem .9rem; margin-top: .75rem; background: rgba(47,111,237,.05); }
+[data-bs-theme="dark"] .shared-location-action-box { background: rgba(47,111,237,.10); }
+.shared-location-action-box.danger { border-color: var(--grad-red-b); background: rgba(230,69,69,.06); }
+[data-bs-theme="dark"] .shared-location-action-box.danger { background: rgba(230,69,69,.12); }
+.shared-location-action-title { font-size: .84rem; font-weight: 600; display: flex; align-items: center; gap: .4rem; margin-bottom: .4rem; }
+.shared-location-action-hint { font-size: .78rem; color: var(--bs-secondary-color); margin-bottom: .5rem; }
+.shared-location-not-configured { font-size: .78rem; padding: .4rem .6rem; border-radius: 6px; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); margin-top: .4rem; }
+.shared-location-result-box { margin-top: .5rem; }
+.shared-location-result-box .alert { font-size: .82rem; padding: .5rem .7rem; margin-bottom: 0; }
 
 .optimize-report-box .alert ul { padding-left: 1.2rem; margin-bottom: 0; }
 .optimize-report-box .alert > div + div { margin-top: .5rem; }

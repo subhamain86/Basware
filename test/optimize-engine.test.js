@@ -31,3 +31,7 @@ test('a clean, already-good query with no issues produces zero changes and zero 
   var opt = OPT.optimizeSql(engine, result);
   assertFalse(opt.hasChanges); assertEqual(opt.recommendations.length, 0);
 });
+test('a query filtered with an "is one of" IN (...) clause is treated the same as any other WHERE (no false "missing WHERE" recommendation)', function () {
+  var result = { sql: 'SELECT IA_INVOICE.INVOICE_NUMBER\nFROM IA_INVOICE\nWHERE IA_INVOICE.STATUS IN (10, 40)', tablesUsed: ['IA_INVOICE'], columnsUsed: [{ table: 'IA_INVOICE', column: 'INVOICE_NUMBER' }], filtersApplied: ['Filter: IA_INVOICE.STATUS IN (10, 40)'], assumptions: [] };
+  assertFalse(OPT.optimizeSql(engine, result).recommendations.some(function (r) { return /no WHERE condition/.test(r); }));
+});

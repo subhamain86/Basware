@@ -29,18 +29,12 @@
   var decodeStore = APSQL_DECODE.createDecodeStore();
 
   /* ================================================================
-     V10.4: LIVE SHARED SCHEMA — zero-config auto-load on EVERY device
-     and browser. This runs on every page load (and periodically), with
-     NO administrator setup required on the consuming side: it is simply
-     a plain, unauthenticated, same-origin fetch of a well-known JSON
-     file path. Whatever schema an administrator publishes there (see
-     GitHub Sync below, whose default File Path matches this exact
-     location) becomes instantly available to literally any visitor.
+     LIVE SHARED SCHEMA — zero-config auto-load on EVERY device/browser
+     (unchanged mechanism from V10.4)
      ================================================================ */
   var sharedSchemaChecked = false;
   var sharedSchemaFound = false;
   var sharedSchemaError = null;
-  var sharedSchemaLastAppliedAt = null;
   var SHARED_SCHEMA_PATH = APSQL_SHARED_SCHEMA.DEFAULT_SHARED_SCHEMA_PATH;
 
   function renderSharedSchemaStrip(elId, opts) {
@@ -50,9 +44,7 @@
     var status = APSQL_SHARED_SCHEMA.describeSharedSchemaStatus(state);
     el.className = 'shared-schema-strip level-' + status.level;
     var icon = status.level === 'live' ? '<span class="shared-schema-pulse"></span>' : '<i class="bi ' + (status.level === 'checking' ? 'bi-hourglass-split' : status.level === 'error' ? 'bi-exclamation-triangle-fill' : 'bi-hdd-fill') + '"></i>';
-    var refreshBtn = opts.withRefresh ? '<button class="btn btn-outline-secondary btn-sm" type="button" id="' + elId + 'RefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>' : '';
-    el.innerHTML = icon + '<span class="shared-schema-text">' + esc(status.text) + '</span>' + refreshBtn;
-    if (opts.withRefresh) { var btn = $(elId + 'RefreshBtn'); if (btn) btn.addEventListener('click', function () { checkSharedSchema(true); }); }
+    el.innerHTML = icon + '<span class="shared-schema-text">' + esc(status.text) + '</span>';
   }
   function renderAllSharedSchemaStrips() {
     renderSharedSchemaStrip('sharedSchemaStripQuickstart');
@@ -67,8 +59,7 @@
         (status.level === 'live' ? '<span class="shared-schema-pulse"></span>' : '<i class="bi ' + (status.level === 'checking' ? 'bi-hourglass-split' : status.level === 'error' ? 'bi-exclamation-triangle-fill' : 'bi-hdd-fill') + '"></i>') +
         '<span class="shared-schema-text">' + esc(status.text) + '</span></div>';
     }
-    var pathDisplays = ['sharedSchemaPathDisplay', 'sharedSchemaPathDisplay2'];
-    pathDisplays.forEach(function (id) { var el = $(id); if (el) el.textContent = SHARED_SCHEMA_PATH; });
+    var pathDisplay = $('sharedSchemaPathDisplay'); if (pathDisplay) pathDisplay.textContent = SHARED_SCHEMA_PATH;
   }
   function checkSharedSchema(isManualCheck) {
     return APSQL_SHARED_SCHEMA.fetchSharedSchema(SHARED_SCHEMA_PATH).then(function (result) {
@@ -77,7 +68,7 @@
       var tablesToValidate = Array.isArray(result.schema) ? result.schema : result.schema.tables;
       var validation = window.APSQL_SCHEMA_TOOLS.validateSchema(tablesToValidate);
       if (!validation.valid) { sharedSchemaFound = false; sharedSchemaError = 'The published shared schema failed validation, so it was ignored.'; renderAllSharedSchemaStrips(); return; }
-      sharedSchemaFound = true; sharedSchemaLastAppliedAt = new Date();
+      sharedSchemaFound = true;
       currentSchema = result.schema; rebuildEngine();
       try { localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(currentSchema)); } catch (e) { }
       schemaLoadedFromStorage = true;
@@ -87,7 +78,7 @@
     }).catch(function (err) {
       sharedSchemaChecked = true;
       sharedSchemaFound = false;
-      sharedSchemaError = isManualCheck ? err.message : null; // silent on background/auto checks — this is a best-effort convenience feature
+      sharedSchemaError = isManualCheck ? err.message : null;
       renderAllSharedSchemaStrips();
     });
   }
@@ -98,7 +89,7 @@
 
   /* ================================================================
      CROSS-DEVICE SCHEMA SYNC — OPTION A: File System Access API
-     (unchanged from V10.2/V10.3 — administrator-facing)
+     (unchanged, administrator-facing)
      ================================================================ */
   var syncSupported = APSQL_SYNC.isFileSystemAccessSupported(window);
   var syncHandleStore = syncSupported ? APSQL_SYNC.createHandleStore() : null;
@@ -235,8 +226,10 @@
   }
 
   /* ================================================================
-     CROSS-DEVICE SCHEMA SYNC — OPTION B: GitHub (unchanged from V10.3
-     — administrator-facing push/pull with a Personal Access Token)
+     CROSS-DEVICE SCHEMA SYNC — OPTION B: GitHub (administrator-facing
+     push/pull with a Personal Access Token). This is also the mechanism
+     that powers the new V10.5 explicit "Upload to Shared Location" /
+     "Delete from Shared Location" actions below.
      ================================================================ */
   var githubConfigStore = APSQL_GITHUB_SYNC.createConfigStore();
   var githubConfig = null;
@@ -273,6 +266,7 @@
       addBtn('Disconnect', 'bi-x-circle', 'btn-outline-secondary', disconnectGithub);
     }
     lastCheckEl.textContent = githubLastCheckedAt ? ('Last checked: ' + githubLastCheckedAt.toLocaleTimeString()) : '';
+    refreshSharedLocationActionAvailability();
   }
 
   function connectGithub() {
@@ -313,7 +307,7 @@
     if (!githubConfig) return Promise.resolve();
     return APSQL_GITHUB_SYNC.fetchRemoteSchema(githubConfig).then(function (result) {
       githubLastCheckedAt = new Date();
-      if (!result.exists) { githubError = null; renderGithubSyncStatus(isManualCheck ? 'Checked GitHub just now \u2014 no shared file found there yet.' : undefined); return; }
+      if (!result.exists) { githubError = null; githubLastSha = null; renderGithubSyncStatus(isManualCheck ? 'Checked GitHub just now \u2014 no shared file found there yet.' : undefined); return; }
       if (githubLastSha !== null && result.sha === githubLastSha) { githubError = null; renderGithubSyncStatus(isManualCheck ? 'Checked GitHub just now.' : undefined); return; }
       var tablesToValidate = Array.isArray(result.schema) ? result.schema : result.schema.tables;
       var validation = window.APSQL_SCHEMA_TOOLS.validateSchema(tablesToValidate);
@@ -353,9 +347,6 @@
     githubConfig = saved;
     checkGithubForUpdates(false).then(function () { renderGithubSyncStatus(); });
   })();
-  /* Default the GitHub Sync "File Path" field to the exact same path the
-     Live Shared Schema auto-loader checks, so an admin who hasn't yet
-     saved a custom path sees them already aligned by default. */
   (function defaultGithubPathToSharedPath() {
     var pathInput = $('githubPathInput');
     if (pathInput && !pathInput.value) pathInput.value = SHARED_SCHEMA_PATH;
@@ -376,6 +367,65 @@
       : '<i class="bi bi-box-seam"></i><span>Using the embedded default schema (no saved changes found in this browser yet). Applying an update or deleting the schema will be saved automatically from now on.</span>';
   }
   renderSchemaPersistenceStatus();
+
+  /* ================================================================
+     V10.5: Explicit Upload / Delete directly at the Shared Schema
+     Location — separate, explicit actions distinct from the always-on
+     background sync in persistCurrentSchema() above. These live inside
+     the Smart Schema Import Engine's Preview Changes card and the Delete
+     Current Schema confirmation modal, and both act on the SAME GitHub
+     connection (Option B) configured above.
+     ================================================================ */
+  function refreshSharedLocationActionAvailability() {
+    var uploadBox = $('publishToSharedLocationCheckbox');
+    var uploadNotConfigured = $('publishSharedLocationNotConfigured');
+    if (uploadBox && uploadNotConfigured) {
+      var connected = !!githubConfig;
+      uploadBox.disabled = !connected;
+      if (!connected) uploadBox.checked = false;
+      uploadNotConfigured.classList.toggle('d-none', connected);
+    }
+    var deleteBox = $('deleteFromSharedLocationCheckbox');
+    var deleteNotConfigured = $('deleteSharedLocationNotConfigured');
+    if (deleteBox && deleteNotConfigured) {
+      var connected2 = !!githubConfig;
+      deleteBox.disabled = !connected2;
+      if (!connected2) deleteBox.checked = false;
+      deleteNotConfigured.classList.toggle('d-none', connected2);
+    }
+  }
+  function publishSchemaToSharedLocationExplicit(schemaObj) {
+    var resultBox = $('publishSharedLocationResult'); if (resultBox) resultBox.innerHTML = '<div class="alert alert-secondary py-2 mb-0"><i class="bi bi-hourglass-split me-1"></i>Publishing to the Shared Schema Location\u2026</div>';
+    return APSQL_GITHUB_SYNC.pushSchemaToGitHub(githubConfig, schemaObj, githubLastSha).then(function (result) {
+      githubLastSha = result.sha; githubError = null; githubConflict = false; renderGithubSyncStatus();
+      if (resultBox) resultBox.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle-fill me-1"></i>Published to the Shared Schema Location. Every device and browser will pick this up automatically once your hosting rebuilds (usually well under a minute).</div>';
+    }).catch(function (err) {
+      if (err.conflict) {
+        return APSQL_GITHUB_SYNC.fetchRemoteSchema(githubConfig).then(function (remote) {
+          githubLastSha = remote.exists ? remote.sha : null;
+          return APSQL_GITHUB_SYNC.pushSchemaToGitHub(githubConfig, schemaObj, githubLastSha);
+        }).then(function (result2) {
+          githubLastSha = result2.sha; githubError = null; githubConflict = false; renderGithubSyncStatus();
+          if (resultBox) resultBox.innerHTML = '<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle-fill me-1"></i>Published to the Shared Schema Location (after resolving a conflicting update). Every device and browser will pick this up automatically once your hosting rebuilds.</div>';
+        }).catch(function (err2) {
+          if (resultBox) resultBox.innerHTML = '<div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle-fill me-1"></i>Could not publish to the Shared Schema Location: ' + esc(err2.message) + '</div>';
+        });
+      }
+      if (resultBox) resultBox.innerHTML = '<div class="alert alert-danger py-2 mb-0"><i class="bi bi-exclamation-triangle-fill me-1"></i>Could not publish to the Shared Schema Location: ' + esc(err.message) + '</div>';
+    });
+  }
+  function deleteSchemaFromSharedLocationExplicit() {
+    if (!githubConfig) return Promise.resolve({ attempted: false });
+    return APSQL_GITHUB_SYNC.fetchRemoteSchema(githubConfig).then(function (remote) {
+      if (!remote.exists) return { attempted: true, deleted: false, message: 'No file was found at the Shared Schema Location to delete.' };
+      return APSQL_GITHUB_SYNC.deleteRemoteFile(githubConfig, remote.sha).then(function () {
+        githubLastSha = null; githubError = null; githubConflict = false; renderGithubSyncStatus();
+        return { attempted: true, deleted: true };
+      }).catch(function (err) {
+        return { attempted: true, deleted: false, message: err.message };
+      });
+    }).catch(function (err) { return { attempted: true, deleted: false, message: err.message }; });
+  }
 
   function moduleLabels() { return engine.getModuleLabels(); }
   function allTables() { return engine.getAllTables().slice().sort(function (a, b) { return a.name < b.name ? -1 : 1; }); }
@@ -643,6 +693,11 @@
     (tableNames && tableNames.length ? tableNames : allTables().map(function (t) { return t.name; })).forEach(function (tname) { var t = engine.getTable(tname); if (!t) return; t.columns.forEach(function (c) { opts.push({ table: tname, column: c.name }); }); });
     return opts;
   }
+  /* V10.5: renderFilterGroup now also toggles the value input's
+     placeholder text (and adds a small inline hint) whenever the
+     selected operator is a multi-value one ("Is one of" / "Is not one
+     of"), so users know to enter a comma-separated list rather than a
+     single value. Every other behavior is unchanged from before. */
   function renderFilterGroup(containerEl, filterGroup, availableTables, onChange) {
     containerEl.innerHTML = '';
     var colOptions = columnOptionsForTables(availableTables);
@@ -658,7 +713,16 @@
       opSel.innerHTML = APSQL_FILTER.OPERATORS.map(function (o) { return '<option value="' + o.id + '">' + o.label + '</option>'; }).join(''); opSel.value = cond.operator;
       var valInput = document.createElement('input'); valInput.className = 'form-control form-control-sm filter-value-input'; valInput.placeholder = 'Value'; valInput.value = cond.value || '';
       var val2Input = document.createElement('input'); val2Input.className = 'form-control form-control-sm filter-value2-input'; val2Input.placeholder = 'and...'; val2Input.value = cond.value2 || '';
-      function refreshArity() { var op = APSQL_FILTER.getOperator(opSel.value); valInput.style.display = op.arity >= 1 ? '' : 'none'; val2Input.style.display = op.arity === 2 ? '' : 'none'; }
+      var multiHint = document.createElement('div'); multiHint.className = 'multi-value-hint d-none'; multiHint.textContent = 'Separate multiple values with commas, e.g. 10, 20, 40';
+      function refreshArity() {
+        var op = APSQL_FILTER.getOperator(opSel.value);
+        valInput.style.display = op.arity >= 1 ? '' : 'none';
+        val2Input.style.display = op.arity === 2 ? '' : 'none';
+        var isMulti = !!op.multi;
+        valInput.classList.toggle('multi-value', isMulti);
+        valInput.placeholder = isMulti ? 'value1, value2, value3, ...' : 'Value';
+        multiHint.classList.toggle('d-none', !isMulti);
+      }
       opSel.addEventListener('change', function () { cond.operator = opSel.value; refreshArity(); onChange(); });
       valInput.addEventListener('input', function () { cond.value = valInput.value; });
       val2Input.addEventListener('input', function () { cond.value2 = val2Input.value; });
@@ -669,7 +733,7 @@
       var rmBtn = document.createElement('button'); rmBtn.type = 'button'; rmBtn.className = 'btn btn-outline-danger btn-sm'; rmBtn.title = 'Remove'; rmBtn.textContent = '\u00d7';
       rmBtn.addEventListener('click', function () { filterGroup.conditions.splice(idx, 1); onChange(); renderFilterGroup(containerEl, filterGroup, availableTables, onChange); });
       toolbar.appendChild(dupBtn); toolbar.appendChild(rmBtn);
-      row.appendChild(joinSel); row.appendChild(colSel); row.appendChild(opSel); row.appendChild(valInput); row.appendChild(val2Input); row.appendChild(toolbar);
+      row.appendChild(joinSel); row.appendChild(colSel); row.appendChild(opSel); row.appendChild(valInput); row.appendChild(val2Input); row.appendChild(toolbar); row.appendChild(multiHint);
       containerEl.appendChild(row);
     });
     if (!colOptions.length) containerEl.innerHTML = '<p class="text-body-secondary small mb-0">Select at least one table first to build filter conditions.</p>';
@@ -851,7 +915,7 @@
   $('optHavingClearBtn').addEventListener('click', function () { $('optHaving').value = ''; });
   $('optHierarchyClearBtn').addEventListener('click', function () { $('optHierarchy').value = ''; });
 
-  var KW = /\b(SELECT|FROM|WHERE|JOIN|LEFT|INNER|ON|AND|OR|GROUP BY|ORDER BY|HAVING|DISTINCT|AS|TOP|FETCH FIRST|ROWS ONLY|BETWEEN|LIMIT|CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|EXISTS|NOT|LIKE|IS NULL|IS NOT NULL)\b/g;
+  var KW = /\b(SELECT|FROM|WHERE|JOIN|LEFT|INNER|ON|AND|OR|GROUP BY|ORDER BY|HAVING|DISTINCT|AS|TOP|FETCH FIRST|ROWS ONLY|BETWEEN|IN|LIMIT|CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|EXISTS|NOT|LIKE|IS NULL|IS NOT NULL)\b/g;
   function highlight(sql) { var e = esc(sql); e = e.replace(/'([^']*)'/g, "<span class='sql-str'>'$1'</span>"); e = e.replace(KW, "<span class='sql-kw'>$1</span>"); return e; }
 
   function renderSuggestedFixes(message) {
@@ -1224,7 +1288,7 @@
   var aboutModalEl = $('aboutModal'); var aboutModal = window.bootstrap ? new window.bootstrap.Modal(aboutModalEl) : null;
   $('aboutMenuBtn').addEventListener('click', function () {
     var st = engine.getStatus();
-    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.4.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both \u2014 correcting SQL queries based on database errors, and automatically using a live, zero-configuration shared schema on every device and browser, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. The Live Shared Schema check is a plain, unauthenticated, same-origin file read \u2014 no credentials are ever involved on the reading side. Schema updates, deletions, and manually-defined relationships remain password-protected and re-verified before every mutating action, whether saved locally, to a linked shared file, or pushed to GitHub.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
+    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.5.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both, with IN/NOT IN multi-value filters \u2014 correcting SQL queries based on database errors, and automatically using a live, zero-configuration shared schema on every device and browser, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. The Live Shared Schema check is a plain, unauthenticated, same-origin file read. Schema updates, deletions, and manually-defined relationships remain password-protected and re-verified before every mutating action, whether saved locally, to a linked shared file, or pushed to/deleted from GitHub via the Shared Schema Location actions.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
     closeMenu(); if (aboutModal) aboutModal.show(); else aboutModalEl.classList.add('show');
   });
 
@@ -1263,6 +1327,8 @@
       $('previewCurrentBox').innerHTML = 'Version: ' + esc(currentSchema.schema_version) + '<br>Tables: ' + diff.currentTableCount + '<br>Columns: ' + diff.currentColumnCount;
       $('previewNewBox').innerHTML = 'Version: ' + esc(diff.newVersion) + '<br>Tables: ' + diff.newTableCount + '<br>Columns: ' + diff.newColumnCount;
       $('previewChangesBox').innerHTML = '<span class="diff-added">+ ' + diff.addedTableCount + ' New Tables</span><br><span class="diff-added">+ ' + diff.addedColumnCount + ' New Columns</span><br><span class="diff-updated">~ ' + diff.updatedTableCount + ' Updated Tables</span>';
+      $('publishSharedLocationResult').innerHTML = '';
+      refreshSharedLocationActionAvailability();
       $('updateSchemaPreviewCard').classList.remove('d-none'); $('updateSchemaPreviewCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }).catch(function (err) { resultBox.innerHTML = '<div class="alert alert-danger py-2 mb-0">' + esc(err.message) + '</div>'; renderWorkflowSteps(1); });
   });
@@ -1279,8 +1345,11 @@
     schemaLoadedFromStorage = true; persistCurrentSchema(); renderSchemaPersistenceStatus();
     renderWorkflowSteps(13);
     refreshAllViewsAfterSchemaChange();
-    $('updateSchemaResult').innerHTML = '<div class="alert alert-success py-2"><div><strong>' + mergeResult.addedTables.length + '</strong> new table(s), <strong>' + mergeResult.addedColumns.length + '</strong> new column(s) added.</div><div class="mt-2"><code>Schema Version: ' + esc(currentSchema.schema_version) + '</code></div><div class="mt-2">The new schema is now active everywhere in this app \u2014 Used Schema, both Query Builders, Error Rectifier, filters, decode, and validation \u2014 and has been saved in this browser (and pushed to any linked shared file / connected GitHub repo), so it will still be here after a refresh. If GitHub Sync is pointed at the Live Shared Schema path, every device and browser will pick it up automatically once GitHub Pages rebuilds.</div></div>';
+    var shouldAlsoPublish = $('publishToSharedLocationCheckbox').checked && !!githubConfig;
+    $('updateSchemaResult').innerHTML = '<div class="alert alert-success py-2"><div><strong>' + mergeResult.addedTables.length + '</strong> new table(s), <strong>' + mergeResult.addedColumns.length + '</strong> new column(s) added.</div><div class="mt-2"><code>Schema Version: ' + esc(currentSchema.schema_version) + '</code></div><div class="mt-2">The new schema is now active everywhere in this app \u2014 Used Schema, both Query Builders, Error Rectifier, filters, decode, and validation \u2014 and has been saved in this browser (and pushed to any linked shared file / connected GitHub repo), so it will still be here after a refresh.</div></div>';
+    if (shouldAlsoPublish) publishSchemaToSharedLocationExplicit(currentSchema);
     $('updateSchemaPreviewCard').classList.add('d-none'); pendingIncomingTables = null;
+    $('publishToSharedLocationCheckbox').checked = false;
   }
   var reauthApplyModalEl = $('reauthApplyModal'); var reauthApplyModal = window.bootstrap ? new window.bootstrap.Modal(reauthApplyModalEl) : null;
   $('activateSchemaBtn').addEventListener('click', function () {
@@ -1299,9 +1368,10 @@
   $('cancelPreviewBtn').addEventListener('click', function () { $('updateSchemaPreviewCard').classList.add('d-none'); pendingIncomingTables = null; renderWorkflowSteps(1); $('updateSchemaResult').innerHTML = '<div class="alert alert-secondary py-2 mb-0">Update cancelled. The existing active schema has not been changed.</div>'; });
 
   var deleteSchemaModalEl = $('deleteSchemaModal'); var deleteSchemaModal = window.bootstrap ? new window.bootstrap.Modal(deleteSchemaModalEl) : null;
-  $('deleteSchemaBtn').addEventListener('click', function () { $('deleteSchemaPasswordInput').value = ''; $('deleteSchemaPasswordError').classList.add('d-none'); if (deleteSchemaModal) deleteSchemaModal.show(); });
+  $('deleteSchemaBtn').addEventListener('click', function () { $('deleteSchemaPasswordInput').value = ''; $('deleteSchemaPasswordError').classList.add('d-none'); $('deleteFromSharedLocationCheckbox').checked = false; refreshSharedLocationActionAvailability(); if (deleteSchemaModal) deleteSchemaModal.show(); });
   $('confirmDeleteSchemaBtn').addEventListener('click', function () {
     var pw = $('deleteSchemaPasswordInput').value;
+    var alsoDeleteFromSharedLocation = $('deleteFromSharedLocationCheckbox').checked && !!githubConfig;
     window.APSQL_SCHEMA_TOOLS.verifyPassword(pw).then(function (ok) {
       if (!ok) { $('deleteSchemaPasswordError').classList.remove('d-none'); return; }
       triggerDownload(window.APSQL_SCHEMA_TOOLS.buildCurrentSchemaJsonBlob(currentSchema), 'schema-backup-before-delete.json');
@@ -1317,7 +1387,17 @@
       crInsertColumns = {}; crUpdateColumns = {}; crFilterGroup.conditions = []; $('crDescriptionInput').value = ''; $('crDescriptionInterpretationBox').innerHTML = '';
       refreshAllViewsAfterSchemaChange();
       if (deleteSchemaModal) deleteSchemaModal.hide();
-      $('updateSchemaResult').innerHTML = '<div class="alert alert-warning py-2"><strong>The active schema has been deleted.</strong> A backup was automatically downloaded as <code>schema-backup-before-delete.json</code>. Upload a new schema file above to continue, or re-import that backup. If a shared file or GitHub repo is linked, it has also been updated to the empty schema.</div>';
+      var baseMsg = '<div class="alert alert-warning py-2"><strong>The active schema has been deleted.</strong> A backup was automatically downloaded as <code>schema-backup-before-delete.json</code>. Upload a new schema file above to continue, or re-import that backup. If a shared file or GitHub repo is linked, it has also been updated to the empty schema.</div>';
+      $('updateSchemaResult').innerHTML = baseMsg;
+      if (alsoDeleteFromSharedLocation) {
+        deleteSchemaFromSharedLocationExplicit().then(function (result) {
+          if (!result.attempted) return;
+          var extra = result.deleted
+            ? '<div class="alert alert-success py-2 mt-2"><i class="bi bi-check-circle-fill me-1"></i>The schema file at the Shared Schema Location was also permanently deleted. Every device and browser will stop seeing a shared schema there until a new one is published.</div>'
+            : '<div class="alert alert-danger py-2 mt-2"><i class="bi bi-exclamation-triangle-fill me-1"></i>Could not delete the file at the Shared Schema Location: ' + esc(result.message || 'unknown error') + '</div>';
+          $('updateSchemaResult').innerHTML = baseMsg + extra;
+        });
+      }
     });
   });
 
@@ -1388,15 +1468,15 @@
   var TOURS = {
     quickstart: [
       { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and helps correct a SQL query when a database gives you back an error.</p>' },
-      { sel: '[data-tour="shared-schema-strip"]', place: 'bottom', title: 'Live Shared Schema (new in V10.4)', body: '<p>Every device and browser that opens this app automatically checks for a published shared schema \u2014 no setup required. This status line tells you whether one is currently in use.</p>' },
+      { sel: '[data-tour="shared-schema-strip"]', place: 'bottom', title: 'Live Shared Schema', body: '<p>Every device and browser that opens this app automatically checks for a published shared schema \u2014 no setup required. This status line tells you whether one is currently in use.</p>' },
       { sel: '#qsExampleGrid', place: 'top', title: 'Try an example', body: '<p>Click any card to load a ready-made example straight into the Read Only Query Builder.</p>' },
       { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Two ways to build a query', body: '<p>Describe what you need in plain language, make selections manually, or combine both.</p>' }
     ],
     builder: [
-      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request here and click Build Query.</p>' },
+      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request here and click Build Query. Try "status is one of 10, 40" for a multi-value filter.</p>' },
       { sel: '[data-tour="describe-build"]', place: 'top', title: 'Build Query works right here too', body: '<p>This button and the one below the tabs do exactly the same thing.</p>' },
       { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, and copy', body: '<p>The validated SQL appears here.</p>' },
-      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Anything you select manually is combined with your description.</p>' }
+      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Anything you select manually is combined with your description. Try the new "Is one of" / "Is not one of" filter operators for IN / NOT IN clauses.</p>' }
     ],
     crbuilder: [
       { sel: '#crCommandSelector', place: 'bottom', title: 'Query Type', body: '<p>Choose INSERT, UPDATE, or DELETE manually, or let your description decide.</p>' },
@@ -1410,9 +1490,9 @@
     ],
     updateschema: [
       { sel: '#schemaPersistenceStatus', place: 'bottom', title: 'Your schema changes are saved', body: '<p>Saved in this browser.</p>' },
-      { sel: '[data-tour="shared-schema-card"]', place: 'bottom', title: 'Live Shared Schema (new in V10.4)', body: '<p>This is what makes the schema available automatically on every device and browser, with zero setup on their end. Point GitHub Sync\u2019s File Path at this exact location to publish.</p>' },
+      { sel: '[data-tour="shared-schema-card"]', place: 'bottom', title: 'Live Shared Schema', body: '<p>This is what makes the schema available automatically on every device and browser, with zero setup on their end. Point GitHub Sync\u2019s File Path at this exact location to publish.</p>' },
       { sel: '[data-tour="sync-card"]', place: 'bottom', title: 'Option A — a shared file (Chrome/Edge)', body: '<p>Link the schema to a single shared file. This needs a Chromium browser.</p>' },
-      { sel: '[data-tour="github-sync-card"]', place: 'bottom', title: 'Option B — sync via GitHub', body: '<p>Works in every browser. Set the File Path here to match the Live Shared Schema path above to feed it automatically.</p>' },
+      { sel: '[data-tour="github-sync-card"]', place: 'bottom', title: 'Option B — sync via GitHub', body: '<p>Works in every browser. This is also what powers the new Upload/Delete actions directly at the Shared Schema Location, found in the Smart Schema Import Engine and Danger Zone below.</p>' },
       { sel: '#updateSchemaPasswordStep', place: 'bottom', title: 'Password-protected administrator action', body: '<p>Only authorized users can update the schema.</p>' }
     ],
     errorrectifier: [

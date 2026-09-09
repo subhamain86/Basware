@@ -20,6 +20,12 @@
   }
 
   var VALUE_RE = '("[^"]*"|\'[^\']*\'|-?\\d+\\.\\d+|-?\\d+|[A-Za-z][A-Za-z0-9_\\-]*)';
+  /* V10.5: a single value in a comma-separated multi-value list, used for
+     the new "is one of" / "is not one of" phrasing below. Allows quoted
+     segments (so a value can itself contain commas/spaces) or a bare
+     word/number token; the whole list is captured as one big string and
+     later split apart by filter-engine.js's own splitMultiValues(). */
+  var MULTI_VALUE_LIST_RE = '((?:"[^"]*"|\'[^\']*\'|[A-Za-z0-9_\\-\\.]+)(?:\\s*,\\s*(?:"[^"]*"|\'[^\']*\'|[A-Za-z0-9_\\-\\.]+))*)';
 
   function scoreAllTables(text, engine) {
     var textLower = String(text || '').toLowerCase();
@@ -85,7 +91,15 @@
     return best;
   }
 
+  /* V10.5: the "is one of" / "is not one of" defs are placed FIRST in this
+     list (before every other operator, including "between") so that a
+     phrase like "status is one of 10, 40" is matched by the multi-value
+     pattern before the plain "is" (eq) pattern gets a chance to grab just
+     the first token ("one") as a false-positive single-value match. Every
+     other operator def and its relative order is unchanged from before. */
   var OPERATOR_DEFS = [
+    { operator: 'not_in', arity: 'multi', re: '(?:is not one of|is not any of|not one of)\\s+' + MULTI_VALUE_LIST_RE },
+    { operator: 'in', arity: 'multi', re: '(?:is one of|is any of|one of)\\s+' + MULTI_VALUE_LIST_RE },
     { operator: 'between', arity: 2, re: 'between\\s+' + VALUE_RE + '\\s+and\\s+' + VALUE_RE },
     { operator: 'gte', arity: 1, re: '(?:greater than or equal to|at least)\\s+' + VALUE_RE },
     { operator: 'lte', arity: 1, re: '(?:less than or equal to|at most)\\s+' + VALUE_RE },
@@ -136,10 +150,10 @@
             var fullRe = new RegExp(escapeRegExp(phrase).replace(/ /g, '\\s+') + '\\s+' + def.re, 'i');
             var m = text.match(fullRe);
             if (m) {
-              var value = cleanValue(m[1]);
-              var value2 = def.arity === 2 ? cleanValue(m[2]) : undefined;
-              var cond = { table: tname, column: col.name, operator: def.operator, value: value };
-              if (value2 !== undefined) cond.value2 = value2;
+              var cond = { table: tname, column: col.name, operator: def.operator };
+              if (def.arity === 2) { cond.value = cleanValue(m[1]); cond.value2 = cleanValue(m[2]); }
+              else if (def.arity === 'multi') { cond.value = m[1].trim(); }
+              else { cond.value = cleanValue(m[1]); }
               conditions.push(cond);
               usedColumns[key] = true;
               found = true;
@@ -150,6 +164,7 @@
         }
       });
     });
+    // Decode-label based equality (only for columns not already matched by an operator pattern).
     tableNames.forEach(function (tname) {
       var table = engine.getTable(tname); if (!table) return;
       table.columns.forEach(function (col) {
@@ -166,6 +181,7 @@
         }
       });
     });
+    // "last N days" -> attach to the best available date/timestamp column.
     var lastDaysMatch = textLower.match(/last\s+(\d+)\s+days?/);
     if (lastDaysMatch && DATATYPE) {
       var n = parseInt(lastDaysMatch[1], 10);
@@ -232,6 +248,8 @@
       case 'starts_with': return 'starts with "' + c.value + '"';
       case 'ends_with': return 'ends with "' + c.value + '"';
       case 'between': return 'between ' + c.value + ' and ' + c.value2;
+      case 'in': return 'is one of (' + c.value + ')';
+      case 'not_in': return 'is not one of (' + c.value + ')';
       default: return String(c.operator);
     }
   }

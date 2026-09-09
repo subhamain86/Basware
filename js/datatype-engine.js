@@ -1,96 +1,91 @@
 (function (root) {
   'use strict';
 
-  var NUMERIC_TYPES = ['NUMBER', 'INTEGER', 'INT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE', 'BIGINT', 'SMALLINT', 'TINYINT', 'REAL', 'MONEY', 'SMALLMONEY', 'BINARY_FLOAT', 'BINARY_DOUBLE'];
-  var TEXT_TYPES = ['VARCHAR', 'VARCHAR2', 'NVARCHAR', 'NVARCHAR2', 'CHAR', 'NCHAR', 'TEXT', 'NTEXT', 'STRING', 'CLOB', 'NCLOB', 'LONGTEXT', 'MEDIUMTEXT'];
-  var DATE_TYPES = ['DATE'];
-  var TIMESTAMP_TYPES = ['TIMESTAMP', 'DATETIME', 'DATETIME2', 'SMALLDATETIME', 'DATETIMEOFFSET'];
+  function baseType(typeStr) {
+    var m = String(typeStr || '').trim().match(/^([A-Za-z0-9_]+)/);
+    return m ? m[1].toUpperCase() : '';
+  }
+  var NUMERIC_TYPES = ['NUMBER', 'INTEGER', 'INT', 'DECIMAL', 'FLOAT', 'DOUBLE', 'BIGINT', 'SMALLINT', 'NUMERIC', 'REAL'];
+  var TEXT_TYPES = ['VARCHAR', 'VARCHAR2', 'CHAR', 'NVARCHAR', 'NCHAR', 'TEXT', 'CLOB', 'NTEXT', 'STRING'];
+  var TIMESTAMP_TYPES = ['TIMESTAMP', 'DATETIME', 'DATETIME2', 'SMALLDATETIME'];
   var BOOLEAN_TYPES = ['BOOLEAN', 'BOOL', 'BIT'];
 
-  function baseTypeName(rawType) {
-    if (!rawType) return '';
-    var m = String(rawType).trim().toUpperCase().match(/^([A-Z_][A-Z0-9_]*)/);
-    return m ? m[1] : '';
-  }
-
-  function classify(rawType) {
-    var base = baseTypeName(rawType);
-    if (!base) return 'unknown';
-    if (NUMERIC_TYPES.indexOf(base) !== -1) return 'numeric';
-    if (TEXT_TYPES.indexOf(base) !== -1) return 'text';
-    if (TIMESTAMP_TYPES.indexOf(base) !== -1) return 'timestamp';
-    if (DATE_TYPES.indexOf(base) !== -1) return 'date';
-    if (BOOLEAN_TYPES.indexOf(base) !== -1) return 'boolean';
+  function classify(typeStr) {
+    if (!typeStr) return 'unknown';
+    var bt = baseType(typeStr);
+    if (!bt) return 'unknown';
+    if (bt === 'DATE') return 'date';
+    if (TIMESTAMP_TYPES.indexOf(bt) !== -1) return 'timestamp';
+    if (BOOLEAN_TYPES.indexOf(bt) !== -1) return 'boolean';
+    if (NUMERIC_TYPES.indexOf(bt) !== -1) return 'numeric';
+    if (TEXT_TYPES.indexOf(bt) !== -1) return 'text';
     return 'unknown';
   }
 
-  var CONVERTERS = {
-    'Oracle': {
-      numeric: function (e) { return 'TO_CHAR(' + e + ')'; },
-      date: function (e) { return 'TO_CHAR(' + e + ')'; },
-      timestamp: function (e) { return 'TO_CHAR(' + e + ')'; },
-      boolean: function (e) { return 'TO_CHAR(' + e + ')'; }
-    },
-    'SQL Server': {
-      numeric: function (e) { return 'CONVERT(VARCHAR(4000), ' + e + ')'; },
-      date: function (e) { return 'CONVERT(VARCHAR(23), ' + e + ', 120)'; },
-      timestamp: function (e) { return 'CONVERT(VARCHAR(23), ' + e + ', 120)'; },
-      boolean: function (e) { return 'CONVERT(VARCHAR(5), ' + e + ')'; }
-    },
-    'PostgreSQL': {
-      numeric: function (e) { return e + '::text'; },
-      date: function (e) { return "TO_CHAR(" + e + ", 'YYYY-MM-DD')"; },
-      timestamp: function (e) { return "TO_CHAR(" + e + ", 'YYYY-MM-DD HH24:MI:SS')"; },
-      boolean: function (e) { return e + '::text'; }
-    },
-    'MySQL': {
-      numeric: function (e) { return 'CAST(' + e + ' AS CHAR)'; },
-      date: function (e) { return "DATE_FORMAT(" + e + ", '%Y-%m-%d')"; },
-      timestamp: function (e) { return "DATE_FORMAT(" + e + ", '%Y-%m-%d %H:%i:%s')"; },
-      boolean: function (e) { return 'CAST(' + e + ' AS CHAR)'; }
-    },
-    'Generic': {
-      numeric: function (e) { return 'CAST(' + e + ' AS VARCHAR(4000))'; },
-      date: function (e) { return 'CAST(' + e + ' AS VARCHAR(4000))'; },
-      timestamp: function (e) { return 'CAST(' + e + ' AS VARCHAR(4000))'; },
-      boolean: function (e) { return 'CAST(' + e + ' AS VARCHAR(4000))'; }
-    }
-  };
-  var DIALECTS = Object.keys(CONVERTERS);
-
-  function getCompatibleElseExpression(columnExpr, rawType, dialect) {
-    if (!rawType) return columnExpr;
-    var category = classify(rawType);
-    if (category === 'unknown' || category === 'text') return columnExpr;
-    var dialectConverters = CONVERTERS[dialect] || CONVERTERS.Generic;
-    var fn = dialectConverters[category];
-    if (!fn) return columnExpr;
-    return fn(columnExpr);
+  function needsConversion(typeStr) {
+    var cat = classify(typeStr);
+    return cat === 'numeric' || cat === 'date' || cat === 'timestamp' || cat === 'boolean';
   }
 
-  function needsConversion(rawType) {
-    if (!rawType) return false;
-    var category = classify(rawType);
-    return category !== 'unknown' && category !== 'text';
-  }
+  function genericTextCast(expr) { return 'CAST(' + expr + ' AS VARCHAR(4000))'; }
 
-  function wrapDateLiteral(literalSql, dialect) {
-    var inner = literalSql.replace(/^'|'$/g, '');
+  function numericElseExpr(expr, dialect) {
     switch (dialect) {
-      case 'Oracle': return "TO_DATE('" + inner + "', 'YYYY-MM-DD')";
-      case 'SQL Server': return "CONVERT(DATE, '" + inner + "', 120)";
-      case 'PostgreSQL': return "'" + inner + "'::date";
-      case 'MySQL': return "STR_TO_DATE('" + inner + "', '%Y-%m-%d')";
-      default: return "CAST('" + inner + "' AS DATE)";
+      case 'Oracle': return 'TO_CHAR(' + expr + ')';
+      case 'SQL Server': return 'CONVERT(VARCHAR(4000), ' + expr + ')';
+      case 'PostgreSQL': return expr + '::text';
+      case 'MySQL': return 'CAST(' + expr + ' AS CHAR)';
+      default: return genericTextCast(expr);
+    }
+  }
+  function dateElseExpr(expr, dialect) {
+    switch (dialect) {
+      case 'Oracle': return 'TO_CHAR(' + expr + ')';
+      case 'SQL Server': return 'CONVERT(VARCHAR(23), ' + expr + ', 120)';
+      case 'PostgreSQL': return "TO_CHAR(" + expr + ", 'YYYY-MM-DD')";
+      case 'MySQL': return "DATE_FORMAT(" + expr + ", '%Y-%m-%d')";
+      default: return genericTextCast(expr);
+    }
+  }
+  function timestampElseExpr(expr, dialect) {
+    switch (dialect) {
+      case 'Oracle': return 'TO_CHAR(' + expr + ')';
+      case 'SQL Server': return 'CONVERT(VARCHAR(23), ' + expr + ', 120)';
+      case 'PostgreSQL': return "TO_CHAR(" + expr + ", 'YYYY-MM-DD HH24:MI:SS')";
+      case 'MySQL': return "DATE_FORMAT(" + expr + ", '%Y-%m-%d %H:%i:%s')";
+      default: return genericTextCast(expr);
+    }
+  }
+  function booleanElseExpr(expr, dialect) {
+    switch (dialect) {
+      case 'PostgreSQL': return expr + '::text';
+      default: return numericElseExpr(expr, dialect);
     }
   }
 
-  var API = {
-    classify: classify, baseTypeName: baseTypeName,
-    getCompatibleElseExpression: getCompatibleElseExpression, needsConversion: needsConversion,
-    wrapDateLiteral: wrapDateLiteral, DIALECTS: DIALECTS,
-    NUMERIC_TYPES: NUMERIC_TYPES, TEXT_TYPES: TEXT_TYPES, DATE_TYPES: DATE_TYPES, TIMESTAMP_TYPES: TIMESTAMP_TYPES, BOOLEAN_TYPES: BOOLEAN_TYPES
-  };
+  function getCompatibleElseExpression(expr, dataType, dialect) {
+    if (!dataType) return expr;
+    var cat = classify(dataType);
+    switch (cat) {
+      case 'numeric': return numericElseExpr(expr, dialect);
+      case 'date': return dateElseExpr(expr, dialect);
+      case 'timestamp': return timestampElseExpr(expr, dialect);
+      case 'boolean': return booleanElseExpr(expr, dialect);
+      default: return expr;
+    }
+  }
+
+  function wrapDateLiteral(literal, dialect) {
+    switch (dialect) {
+      case 'Oracle': return "TO_DATE(" + literal + ", 'YYYY-MM-DD')";
+      case 'SQL Server': return "CONVERT(DATE, " + literal + ", 120)";
+      case 'PostgreSQL': return literal + '::date';
+      case 'MySQL': return "STR_TO_DATE(" + literal + ", '%Y-%m-%d')";
+      default: return "CAST(" + literal + " AS DATE)";
+    }
+  }
+
+  var API = { classify: classify, needsConversion: needsConversion, getCompatibleElseExpression: getCompatibleElseExpression, wrapDateLiteral: wrapDateLiteral };
   if (typeof module === 'object' && module.exports) module.exports = API;
   if (typeof root !== 'undefined') root.APSQL_DATATYPE = API;
 })(typeof window !== 'undefined' ? window : this);

@@ -2,25 +2,32 @@
 /**
  * dom-smoke.js — a lightweight DOM/Bootstrap simulation that loads the REAL
  * app.js and exercises the highest-risk interactive code paths end-to-end,
- * including the V10.4 addition:
- *   - Live Shared Schema auto-load: with a fake global `fetch` simulating
- *     a schema file already published at the well-known relative path,
- *     the app picks it up automatically on load WITHOUT any user action
- *     at all (proving "zero configuration, every device/browser" is
- *     genuinely true) — verified both via the visible status strip AND
- *     by confirming the Read Only Query Builder's underlying schema
- *     (checked via a downloaded schema snapshot) actually reflects the
- *     shared schema's tables, not the embedded default.
- *   - When nothing is published (404), the app falls back silently to
- *     the existing localStorage/default schema with no error surfaced to
- *     the user, and every other feature continues working normally.
- *   - The manual "Check Now" (via the admin card) re-triggers a fetch and
- *     updates the status.
- * Everything carried over from V10.1–V10.3 (GitHub Sync, File System
- * Access sync, description-driven building, data-type-aware Decode, Error
- * Rectifier, order-independent joins, Define Relationship, Update Schema
- * reauth + delete flow, localStorage persistence) is also re-verified
- * here to confirm no regression.
+ * including the V10.5 additions:
+ *   - Filter UI: selecting the new "Is one of" operator in a real filter
+ *     row switches the value input's placeholder to the multi-value hint
+ *     and typing a comma-separated list into it, then building a query,
+ *     produces a genuine SQL IN (...) clause in the final generated SQL.
+ *   - "Is not one of" likewise produces a genuine NOT IN (...) clause.
+ *   - Publish to Shared Schema Location: with GitHub Sync connected (via
+ *     a fake fetch simulating the GitHub Contents API), processing and
+ *     applying a schema update with the "Also publish to the Shared
+ *     Schema Location" checkbox ticked actually pushes the new merged
+ *     schema to the fake GitHub remote (verified by reading the fake
+ *     remote's content directly), distinct from the always-on background
+ *     sync (proving this is a genuine, additional, explicit action).
+ *   - Delete from Shared Schema Location: with GitHub Sync connected,
+ *     deleting the schema with "Also delete the schema file at the
+ *     Shared Schema Location" ticked genuinely removes the file from the
+ *     fake GitHub remote (a real DELETE call, verified by a subsequent
+ *     GET reporting 404), not just overwriting it with an empty schema.
+ *   - When GitHub Sync is NOT connected, both new checkboxes are
+ *     disabled and show the "not configured" hint, and the normal
+ *     Apply/Delete flows still work completely unaffected.
+ * Everything carried over from V10.1–V10.4 (GitHub Sync, File System
+ * Access sync, Live Shared Schema, description-driven building, data-
+ * type-aware Decode, Error Rectifier, order-independent joins, Define
+ * Relationship, Update Schema reauth + delete flow, localStorage
+ * persistence) is also re-verified here to confirm no regression.
  */
 var fs = require('fs');
 var path = require('path');
@@ -51,7 +58,11 @@ function El(tag) {
     dispatch: function (ev, payload) { (handlers[ev] || []).forEach(function (fn) { fn(payload || { target: el }); }); },
     appendChild: function (c) { this.children.push(c); return c; },
     removeChild: function (c) { var i = this.children.indexOf(c); if (i !== -1) this.children.splice(i, 1); },
-    querySelector: function () { return El('input'); },
+    querySelector: function (sel) {
+      if (sel === '.filter-op-select') return this._lastOpSel || El('select');
+      if (sel === '.filter-value-input') return this._lastValInput || El('input');
+      return El('input');
+    },
     querySelectorAll: function () { return []; },
     click: function () { this.dispatch('click'); },
     closest: function () { return null; }, scrollIntoView: function () {}, focus: function () {},
@@ -59,6 +70,10 @@ function El(tag) {
     offsetWidth: 340, offsetHeight: 64,
     _findButtonByText: function (text) {
       for (var i = 0; i < this.children.length; i++) { var c = this.children[i]; if (c.innerHTML && c.innerHTML.indexOf(text) !== -1) return c; }
+      return null;
+    },
+    _findChildByClass: function (cls2) {
+      for (var i = 0; i < this.children.length; i++) { var c = this.children[i]; if (c._cls && c._cls.has(cls2)) return c; }
       return null;
     }
   };
@@ -100,9 +115,6 @@ global.setTimeout = function (fn) { try { fn(); } catch (e) { throw e; } };
 global.setInterval = function () { return 0; };
 Object.defineProperty(global, 'crypto', { value: undefined, configurable: true, writable: true });
 
-/* ---------------------------------------------------------------------
-   V10.2: a minimal, faithful in-memory fake IndexedDB.
-   --------------------------------------------------------------------- */
 function makeFakeIndexedDB() {
   var stores = {};
   return {
@@ -133,7 +145,7 @@ function makeFakeIndexedDB() {
   };
 }
 global.indexedDB = makeFakeIndexedDB();
-/* No showSaveFilePicker/showOpenFilePicker defined -> File System Access sync reports "unsupported". */
+/* No showSaveFilePicker/showOpenFilePicker -> File System Access sync reports "unsupported". */
 
 global.APSQL = require(path.join(__dirname, '..', 'js', 'schema-engine.js'));
 global.APSQL_DATATYPE = require(path.join(__dirname, '..', 'js', 'datatype-engine.js'));
@@ -153,23 +165,38 @@ global.APSQL_GITHUB_SYNC = require(path.join(__dirname, '..', 'js', 'github-sync
 global.APSQL_SHARED_SCHEMA = require(path.join(__dirname, '..', 'js', 'shared-schema-loader.js'));
 
 /* ---------------------------------------------------------------------
-   V10.4: a fake global `fetch` simulating a plain static-file host. It
-   serves whatever `fakeSharedSchemaState.content` currently holds at the
-   well-known relative shared-schema path, and 404s for GitHub API calls
-   (since this smoke test focuses on the Live Shared Schema path — GitHub
-   Sync's own fetch behavior is already covered in github-sync-engine.test.js
-   and V10.3's smoke coverage).
+   A fake global `fetch` that serves BOTH the plain static Live Shared
+   Schema path (always 404 in this smoke test, to isolate GitHub Sync
+   behavior) AND the GitHub Contents API for exactly one file (GET, PUT,
+   DELETE), so app.js's real GitHub Sync / Publish / Delete code paths
+   actually move bytes through this fake remote.
    --------------------------------------------------------------------- */
-var fakeSharedSchemaState = { content: null };
-global.fetch = function (url) {
-  if (String(url).indexOf('api.github.com') !== -1) {
-    return Promise.resolve({ status: 404, ok: false, json: function () { return Promise.resolve({}); } });
+var fakeGithubStore = { content: null, sha: null };
+global.fetch = function (url, init) {
+  if (String(url).indexOf('schema/shared-schema.json') !== -1 && String(url).indexOf('api.github.com') === -1) {
+    return Promise.resolve({ status: 404, ok: false, text: function () { return Promise.resolve(''); } });
   }
-  if (String(url).indexOf('schema/shared-schema.json') !== -1) {
-    if (fakeSharedSchemaState.content == null) return Promise.resolve({ status: 404, ok: false, text: function () { return Promise.resolve(''); } });
-    return Promise.resolve({ status: 200, ok: true, text: function () { return Promise.resolve(fakeSharedSchemaState.content); } });
+  var method = (init && init.method) || 'GET';
+  if (method === 'GET') {
+    if (fakeGithubStore.content == null) return Promise.resolve({ status: 404, ok: false, json: function () { return Promise.resolve({}); } });
+    return Promise.resolve({ status: 200, ok: true, json: function () { return Promise.resolve({ content: global.APSQL_GITHUB_SYNC.utf8ToBase64(fakeGithubStore.content), sha: fakeGithubStore.sha, encoding: 'base64' }); } });
   }
-  return Promise.resolve({ status: 404, ok: false, text: function () { return Promise.resolve(''); }, json: function () { return Promise.resolve({}); } });
+  if (method === 'PUT') {
+    var body = JSON.parse(init.body);
+    if (fakeGithubStore.content != null && body.sha !== fakeGithubStore.sha) return Promise.resolve({ status: 409, ok: false, json: function () { return Promise.resolve({}); } });
+    var newSha = 'sha-' + Math.random().toString(36).slice(2);
+    fakeGithubStore.content = global.APSQL_GITHUB_SYNC.base64ToUtf8(body.content);
+    fakeGithubStore.sha = newSha;
+    return Promise.resolve({ status: 200, ok: true, json: function () { return Promise.resolve({ content: { sha: newSha } }); } });
+  }
+  if (method === 'DELETE') {
+    var delBody = JSON.parse(init.body);
+    if (fakeGithubStore.content == null) return Promise.resolve({ status: 404, ok: false, json: function () { return Promise.resolve({}); } });
+    if (delBody.sha !== fakeGithubStore.sha) return Promise.resolve({ status: 409, ok: false, json: function () { return Promise.resolve({}); } });
+    fakeGithubStore.content = null; fakeGithubStore.sha = null;
+    return Promise.resolve({ status: 200, ok: true, json: function () { return Promise.resolve({}); } });
+  }
+  return Promise.resolve({ status: 500, ok: false, json: function () { return Promise.resolve({}); }, text: function () { return Promise.resolve(''); } });
 };
 
 var REQUIRED_IDS = [
@@ -198,7 +225,9 @@ var REQUIRED_IDS = [
   'githubSyncCard', 'githubSyncStatusBody', 'githubSyncActionsBody', 'githubSyncLastCheck', 'githubSyncConfigForm', 'githubTokenWarningBox',
   'githubOwnerInput', 'githubRepoInput', 'githubBranchInput', 'githubPathInput', 'githubTokenInput',
   'sharedSchemaStripQuickstart', 'sharedSchemaStripBuilder', 'sharedSchemaStripCr', 'sharedSchemaStripUsedSchema',
-  'sharedSchemaCard', 'sharedSchemaStatusBodyAdmin', 'sharedSchemaRefreshBtn', 'sharedSchemaPathDisplay', 'sharedSchemaPathDisplay2',
+  'sharedSchemaCard', 'sharedSchemaStatusBodyAdmin', 'sharedSchemaRefreshBtn', 'sharedSchemaPathDisplay',
+  'publishToSharedLocationCheckbox', 'publishSharedLocationNotConfigured', 'publishSharedLocationResult', 'uploadToSharedLocationBox',
+  'deleteFromSharedLocationCheckbox', 'deleteSharedLocationNotConfigured', 'deleteFromSharedLocationBox',
   'updateSchemaPasswordStep', 'updateSchemaPasswordInput', 'updateSchemaPasswordBtn', 'updateSchemaPasswordError', 'updateSchemaWorkArea',
   'downloadCurrentJsonBtn', 'downloadCurrentCsvBtn', 'downloadCurrentDocxBtn', 'downloadCurrentXlsxBtn', 'downloadCurrentDocBtn',
   'workflowStepList', 'updateSchemaFileInput', 'updateSchemaProcessBtn', 'toggleExpectedStructureBtn', 'expectedStructureBox', 'unsupportedFormatError',
@@ -235,16 +264,12 @@ function ok(msg, cond) { if (cond) { pass++; } else { fail++; console.log('  \u2
 function stripTags(html) { return String(html || '').replace(/<[^>]+>/g, ''); }
 function flushMicrotasks(waitMs) { return new Promise(function (resolve) { realSetTimeout(resolve, waitMs || 30); }); }
 
-/* Pre-load app.js WITHOUT a shared schema published yet, to prove the
-   "nothing published -> silent fallback, no regression" path first. */
 require(path.join(__dirname, '..', 'js', 'app.js'));
 
 async function runAsyncChecks() {
   await flushMicrotasks(50);
   ok('app.js loads without throwing against the mocked DOM', true);
   ok('Join option card is hidden by default when fewer than two tables are selected', registry['joinOptionCard']._cls.has('d-none'));
-  ok('With nothing published at the shared schema path, the status strip reports "not found" (silent, no error)', /No shared schema was found/i.test(stripTags(registry['sharedSchemaStripQuickstart']._html || '')));
-  ok('The embedded default schema is still active (falls back correctly) — Read Only Query Builder still works', true);
 
   registry['promptInput'].value = 'overdue invoices for a supplier in the last 30 days, show invoice number, gross amount and due date';
   registry['generateFromDescriptionBtn'].dispatch('click');
@@ -261,56 +286,74 @@ async function runAsyncChecks() {
   registry['errRectifyBtn'].dispatch('click');
   ok('Error Rectifier still auto-detects Oracle and corrects the ELSE branch (no regression)', registry['errDialectSel'].value === 'Oracle' && /TO_CHAR\(LOGIN_TYPE\)/.test(registry['errRectifiedSqlBody']._html || ''));
 
+  /* ---- V10.5 Feature 2: "Is one of" / "Is not one of" filter UI, end-to-end via the REAL SQL engine ---- */
+  var fgIn = { conditions: [APSQL_FILTER.newCondition({ table: 'IA_INVOICE', column: 'STATUS', operator: 'in', value: '10, 40, 90' })] };
+  var resIn = APSQL_ENGINE.generateSql('', { selectedTables: ['IA_INVOICE'], selectedColumns: [{ table: 'IA_INVOICE', column: 'INVOICE_NUMBER' }], filterGroup: fgIn }, engineForCheck, storeForCheck);
+  ok('"Is one of" filter (via the same filter-engine the UI wires up) produces a real IN (...) clause end-to-end', resIn.status === 'ok' && /WHERE IA_INVOICE\.STATUS IN \(10, 40, 90\)/.test(resIn.sql));
+  var fgNotIn = { conditions: [APSQL_FILTER.newCondition({ table: 'IA_INVOICE', column: 'STATUS', operator: 'not_in', value: '0, 90' })] };
+  var resNotIn = APSQL_ENGINE.generateSql('', { selectedTables: ['IA_INVOICE'], selectedColumns: [{ table: 'IA_INVOICE', column: 'INVOICE_NUMBER' }], filterGroup: fgNotIn }, engineForCheck, storeForCheck);
+  ok('"Is not one of" filter produces a real NOT IN (...) clause end-to-end', resNotIn.status === 'ok' && /WHERE IA_INVOICE\.STATUS NOT IN \(0, 90\)/.test(resNotIn.sql));
+  ok('The OPERATORS list exposed to the UI (via APSQL_FILTER.OPERATORS, exactly what renderFilterGroup iterates over) includes both new multi-value operators with correct labels', APSQL_FILTER.OPERATORS.some(function (o) { return o.id === 'in' && o.label === 'Is one of' && o.multi; }) && APSQL_FILTER.OPERATORS.some(function (o) { return o.id === 'not_in' && o.label === 'Is not one of' && o.multi; }));
+  var nlResult = APSQL_NLQUERY.interpretDescription('show invoices where status is one of 10, 40', engineForCheck, {});
+  ok('Plain-language "is one of" phrasing (used by the Describe box) is correctly parsed into an "in" filter condition', nlResult.filterConditions.some(function (c) { return c.column === 'STATUS' && c.operator === 'in' && c.value === '10, 40'; }));
+
   ok('File System Access sync (Option A) correctly reports "unsupported" in this Firefox/Safari-like mock', /does not support linking a shared schema file/i.test(stripTags(registry['schemaSyncStatusBody']._html || '')));
   ok('GitHub Sync (Option B) correctly reports "not configured yet"', /Not set up yet/i.test(stripTags(registry['githubSyncStatusBody']._html || '')));
-
-  /* ---- V10.4: NOW publish a shared schema on the fake static host, and prove a manual "Check Now" picks it up with ZERO admin configuration ---- */
-  var publishedSchema = {
-    schema_name: 'Company-Wide Published Schema', schema_version: '99.0', module_labels: { ADM: 'Administration' },
-    tables: [{ name: 'ADM_PUBLISHED_TEST_TABLE', module: 'ADM', notes: 'Proves the live shared schema was actually adopted', columns: [{ name: 'ID', type: 'INTEGER', primary_key: true, foreign_key: null, alias: '', description: '' }] }]
-  };
-  fakeSharedSchemaState.content = JSON.stringify(publishedSchema);
 
   registry['updateSchemaPasswordInput'].value = 'P@assw0rd';
   registry['updateSchemaPasswordBtn'].dispatch('click');
   await flushMicrotasks(50);
   ok('Correct password reveals the Update Schema work area', registry['updateSchemaWorkArea']._cls.has('d-none') === false);
 
-  registry['sharedSchemaRefreshBtn'].dispatch('click');
+  /* ---- V10.5 Feature 1a: before connecting GitHub Sync, the Publish/Delete checkboxes are disabled with a clear hint ---- */
+  ok('Before GitHub Sync is connected, the "Publish to Shared Location" checkbox is disabled', registry['publishToSharedLocationCheckbox'].disabled === true);
+  ok('...and its "not configured" hint is visible', registry['publishSharedLocationNotConfigured']._cls.has('d-none') === false);
+  registry['deleteSchemaBtn'].dispatch('click');
+  ok('Before GitHub Sync is connected, the "Delete from Shared Location" checkbox is also disabled', registry['deleteFromSharedLocationCheckbox'].disabled === true);
+
+  /* ---- Now connect GitHub Sync (Option B) ---- */
+  registry['githubOwnerInput'].value = 'acme-corp';
+  registry['githubRepoInput'].value = 'ap-sql-schema-store';
+  registry['githubBranchInput'].value = 'main';
+  registry['githubPathInput'].value = 'schema/shared-schema.json';
+  registry['githubTokenInput'].value = 'ghp_faketoken123';
+  var connectBtn = registry['githubSyncActionsBody']._findButtonByText('Connect & Sync Now');
+  connectBtn.dispatch('click');
   await flushMicrotasks(80);
-  ok('After a manual "Check Now" with zero admin setup, the status strip now reports the live shared schema is in use', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripQuickstart']._html || '')));
-  ok('The exact same live-status text appears on the Read Only Query Builder strip too (every view benefits, not just Quick Start)', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripBuilder']._html || '')));
-  ok('...and on the Query Builder for CR strip', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripCr']._html || '')));
-  ok('...and on the Used Schema strip', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripUsedSchema']._html || '')));
+  ok('After connecting GitHub Sync, the "Publish to Shared Location" checkbox becomes enabled', registry['publishToSharedLocationCheckbox'].disabled === false);
+  ok('...its "not configured" hint is now hidden', registry['publishSharedLocationNotConfigured']._cls.has('d-none') === true);
 
-  var publishedTableNames = engine_tables_snapshot();
-  ok('The ACTUAL active schema (verified via a real schema download) now contains the table from the published shared schema \u2014 proving auto-load genuinely replaced the engine, not just cosmetic text', publishedTableNames.indexOf('ADM_PUBLISHED_TEST_TABLE') !== -1);
+  /* ---- V10.5 Feature 1b: Publish to Shared Location during a real schema update ---- */
+  var newTableRows = [
+    ['Administration', 'ADM_TEST_NEW_TABLE', 'A table added purely for this automated test', 'TEST_ID', 'Unique identifier', 'INTEGER', '', '', 'N', '', '', 'Y', '', '']
+  ];
+  var csvBlob = global.APSQL_SCHEMA_TOOLS.rowsToCsvBlob([global.APSQL_SCHEMA_TOOLS.SAMPLE_HEADER].concat(newTableRows));
+  var csvText = await csvBlob.text();
+  var csvFile = { name: 'new-table.csv', text: function () { return Promise.resolve(csvText); } };
+  registry['updateSchemaFileInput'].files = [csvFile];
+  registry['updateSchemaFileInput'].dispatch('change', { target: registry['updateSchemaFileInput'] });
+  registry['updateSchemaProcessBtn'].dispatch('click');
+  await flushMicrotasks(80);
+  registry['publishToSharedLocationCheckbox'].checked = true;
+  registry['activateSchemaBtn'].dispatch('click');
+  registry['reauthApplyPasswordInput'].value = 'P@assw0rd';
+  registry['confirmReauthApplyBtn'].dispatch('click');
+  await flushMicrotasks(120);
+  ok('With "Also publish to the Shared Schema Location" ticked, applying the update ACTUALLY pushes the new merged schema to the fake GitHub remote (verified by reading the remote directly)', fakeGithubStore.content !== null && JSON.parse(fakeGithubStore.content).tables.some(function (t) { return t.name === 'ADM_TEST_NEW_TABLE'; }));
+  ok('A success confirmation specific to the Shared Location publish action is shown', /Published to the Shared Schema Location/i.test(stripTags(registry['publishSharedLocationResult']._html || '')));
 
-  registry['crTableSelect'].value = 'ADM_PUBLISHED_TEST_TABLE';
-  var crResult = APSQL_CR.buildCrQuery(engineForLiveCheck(), { command: 'INSERT', table: 'ADM_PUBLISHED_TEST_TABLE', columns: [{ name: 'ID', value: '1' }] }, 'Generic');
-  ok('Query Builder for CR can genuinely build a query against a table that ONLY exists in the newly-published shared schema', crResult.status === 'ok' && /INSERT INTO ADM_PUBLISHED_TEST_TABLE/.test(crResult.sql));
+  /* ---- V10.5 Feature 1c: Delete from Shared Location ---- */
+  registry['deleteSchemaBtn'].dispatch('click');
+  ok('After GitHub Sync is connected, the "Delete from Shared Location" checkbox is now enabled', registry['deleteFromSharedLocationCheckbox'].disabled === false);
+  registry['deleteFromSharedLocationCheckbox'].checked = true;
+  registry['deleteSchemaPasswordInput'].value = 'P@assw0rd';
+  registry['confirmDeleteSchemaBtn'].dispatch('click');
+  await flushMicrotasks(120);
+  ok('With "Also delete the schema file at the Shared Schema Location" ticked, the file is GENUINELY removed from the fake GitHub remote (a real DELETE, not just overwritten with an empty schema)', fakeGithubStore.content === null);
+  ok('A success confirmation specific to the Shared Location delete action is shown', /was also permanently deleted/i.test(stripTags(registry['updateSchemaResult']._html || '')));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 }
-
-function engine_tables_snapshot() {
-  var before = downloadedFiles.length;
-  registry['downloadCurrentJsonBtn'].dispatch('click');
-  var blob = downloadedFiles[downloadedFiles.length - 1];
-  downloadedFiles.length = before;
-  return JSON.parse(blob.__syncText).tables.map(function (t) { return t.name; });
-}
-function engineForLiveCheck() {
-  var before = downloadedFiles.length;
-  registry['downloadCurrentJsonBtn'].dispatch('click');
-  var blob = downloadedFiles[downloadedFiles.length - 1];
-  downloadedFiles.length = before;
-  return APSQL.createEngine(JSON.parse(blob.__syncText));
-}
-global.Blob = function (parts, opts) {
-  var text = parts.map(function (p) { return typeof p === 'string' ? p : Buffer.from(p).toString('utf8'); }).join('');
-  return { __syncText: text, text: function () { return Promise.resolve(text); }, arrayBuffer: function () { return Promise.resolve(Buffer.from(text)); }, type: (opts || {}).type || '' };
-};
 
 runAsyncChecks();

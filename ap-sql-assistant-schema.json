@@ -1,6 +1,6 @@
 {
   "schema_name": "AP-SQL Assistant Embedded Schema",
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "last_updated": "2026-09-09",
   "source_documents": [
     "Embedded sample — replace via Schema > Update Schema",
@@ -8,6 +8,7 @@
     "best-working-schema1.json",
     "Schema deleted by administrator on 2026-09-08 — awaiting new upload",
     "Schema deleted by administrator on 2026-09-09 — awaiting new upload",
+    "best-working-schema1.json",
     "best-working-schema1.json"
   ],
   "module_labels": {

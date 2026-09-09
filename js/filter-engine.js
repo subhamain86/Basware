@@ -1,13 +1,5 @@
 (function (root) {
   'use strict';
-  /**
-   * V10.5: added the "in" ("Is one of") and "not_in" ("Is not one of")
-   * operators, which build SQL IN (...) / NOT IN (...) clauses from a
-   * comma-separated list of values entered in the single value field
-   * (marked with `multi: true` so the UI knows to accept a
-   * comma-separated list rather than a single value). Every other
-   * operator is unchanged from prior versions.
-   */
   var OPERATORS = [
     { id: 'eq', label: 'Equals', arity: 1 }, { id: 'neq', label: 'Does not equal', arity: 1 },
     { id: 'contains', label: 'Contains', arity: 1 }, { id: 'not_contains', label: 'Does not contain', arity: 1 },
@@ -24,13 +16,6 @@
   function sqlLiteral(value) { if (value === null || value === undefined || value === '') return "''"; if (isNumericLiteral(value)) return String(value).trim(); return "'" + String(value).replace(/'/g, "''") + "'"; }
   function qualify(condition) { return condition.table ? (condition.table + '.' + condition.column) : condition.column; }
 
-  /**
-   * splitMultiValues(raw) — turns a comma-separated string (optionally
-   * with quoted segments, e.g. `10, "20", 'Approved'`) into a clean array
-   * of individual value strings, trimming whitespace, stripping a single
-   * layer of surrounding quotes per item, and dropping empty segments.
-   * Also accepts an already-split array as a passthrough (trimmed).
-   */
   function splitMultiValues(raw) {
     if (raw == null) return [];
     if (Array.isArray(raw)) return raw.map(function (v) { return String(v).trim(); }).filter(function (v) { return v.length > 0; });

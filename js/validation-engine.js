@@ -30,11 +30,23 @@
     });
     return ok;
   }
+  /**
+   * V10.6: SELECT columns may now represent an aggregate expression (see
+   * sql-engine.js's resolveColumnDisplay), signaled by `c.aggregate` being
+   * set (e.g. 'COUNT'/'SUM'/'AVG'/'MIN'/'MAX'). When the aggregate target
+   * is the literal wildcard '*' (i.e. COUNT(*)), there is no real column
+   * to validate against the schema — only the table needs to exist. Every
+   * other column entry (aggregate or not) is validated exactly as before.
+   */
   function validateSelectRequest(engine, request) {
     var errors = []; var tables = request.tables || [];
     if (!tables.length) errors.push('At least one table must be selected (or determined from your description).');
     tables.forEach(function (t) { validateTableRef(engine, t, errors); });
-    (request.columns || []).forEach(function (c) { if (!validateTableRef(engine, c.table, errors)) return; validateColumnRef(engine, c.table, c.column, errors); });
+    (request.columns || []).forEach(function (c) {
+      if (!validateTableRef(engine, c.table, errors)) return;
+      if (c.aggregate && c.column === '*') return;
+      validateColumnRef(engine, c.table, c.column, errors);
+    });
     validateFilterGroup(engine, request.filterGroup, tables, errors);
     return { valid: errors.length === 0, errors: errors };
   }

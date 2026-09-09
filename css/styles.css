@@ -91,6 +91,7 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .cr-query-type-card label { margin-bottom: .35rem; }
 .describe-action-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-top: .5rem; }
 .describe-action-row .describe-hint { font-size: .78rem; color: var(--bs-secondary-color); }
+.describe-action-buttons { display: flex; gap: .4rem; flex-wrap: wrap; }
 .description-interpretation-box .alert ul { padding-left: 1.2rem; margin-bottom: 0; }
 .description-interpretation-box { margin-top: .6rem; }
 .tab-action-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; padding: .55rem .9rem; background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-bottom: none; border-top-left-radius: 0; border-top-right-radius: 0; }
@@ -213,12 +214,6 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .shared-schema-strip .btn { flex: 0 0 auto; }
 .shared-schema-default-note { font-size: .76rem; color: var(--bs-secondary-color); margin-top: .4rem; }
 .shared-schema-path-hint { font-family: var(--bs-font-monospace); font-size: .78rem; background: var(--bs-tertiary-bg); padding: .1rem .4rem; border-radius: 4px; }
-
-/* ---------------- V10.5: filter panel — "Is one of" / "Is not one of" multi-value input ---------------- */
-.filter-value-input.multi-value { font-family: var(--bs-font-monospace); font-size: .8rem; }
-.filter-condition-row .multi-value-hint { flex-basis: 100%; font-size: .72rem; color: var(--bs-secondary-color); margin-top: -2px; }
-
-/* ---------------- V10.5: Upload / Delete directly at the Shared Schema Location ---------------- */
 .shared-location-action-box { border: 1px dashed var(--brand); border-radius: 10px; padding: .75rem .9rem; margin-top: .75rem; background: rgba(47,111,237,.05); }
 [data-bs-theme="dark"] .shared-location-action-box { background: rgba(47,111,237,.10); }
 .shared-location-action-box.danger { border-color: var(--grad-red-b); background: rgba(230,69,69,.06); }
@@ -228,6 +223,27 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .shared-location-not-configured { font-size: .78rem; padding: .4rem .6rem; border-radius: 6px; background: var(--bs-tertiary-bg); color: var(--bs-secondary-color); margin-top: .4rem; }
 .shared-location-result-box { margin-top: .5rem; }
 .shared-location-result-box .alert { font-size: .82rem; padding: .5rem .7rem; margin-bottom: 0; }
+
+/* ---------------- V10.6: Intelligent Query Builder — confidence, explanation, ambiguity ---------------- */
+.confidence-checklist-box { margin-top: .5rem; font-size: .8rem; }
+.confidence-checklist-box ul { list-style: none; padding-left: 0; margin-bottom: 0; display: flex; flex-wrap: wrap; gap: .3rem .9rem; }
+.confidence-checklist-box li { display: flex; align-items: center; gap: .3rem; }
+.confidence-checklist-box li.ok { color: #146c3a; }
+[data-bs-theme="dark"] .confidence-checklist-box li.ok { color: #8ee6a8; }
+.confidence-checklist-box li.warn { color: #a8590f; }
+[data-bs-theme="dark"] .confidence-checklist-box li.warn { color: #ffb26b; }
+.ambiguity-box { border: 1px dashed var(--grad-orange-b); border-radius: 10px; padding: .75rem .9rem; margin-top: .6rem; background: rgba(244,132,42,.06); }
+[data-bs-theme="dark"] .ambiguity-box { background: rgba(244,132,42,.12); }
+.ambiguity-term-title { font-size: .84rem; font-weight: 600; margin-bottom: .35rem; display: flex; align-items: center; gap: .4rem; }
+.ambiguity-option-row { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .5rem; }
+.ambiguity-option-btn { font-size: .78rem; text-align: left; }
+.ambiguity-option-btn .opt-desc { display: block; font-weight: 400; font-size: .72rem; opacity: .8; }
+.explanation-report-box { margin-top: .6rem; }
+.explanation-report-box ul { padding-left: 1.2rem; margin-bottom: 0; }
+.explanation-report-box li { margin-bottom: .25rem; }
+.describe-examples-hint { font-size: .76rem; color: var(--bs-secondary-color); margin-top: .4rem; }
+.describe-examples-hint ul { padding-left: 1.1rem; margin-bottom: 0; }
+.hybrid-mode-note { font-size: .74rem; color: var(--bs-secondary-color); font-style: italic; margin-top: .3rem; }
 
 .optimize-report-box .alert ul { padding-left: 1.2rem; margin-bottom: 0; }
 .optimize-report-box .alert > div + div { margin-top: .5rem; }

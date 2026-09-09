@@ -1,4 +1,12 @@
 'use strict';
+/**
+ * nl-query-engine.test.js — Section 1 (V10.1–V10.5) tests. Every
+ * function tested here is byte-for-byte identical to its V10.5
+ * implementation (see the "SECTION 1 — UNCHANGED" banner comment at the
+ * top of nl-query-engine.js), so nothing in this file should ever need
+ * to change as a result of the V10.6 "intelligent engine" additions.
+ * See nl-query-engine-intelligent.test.js for the new V10.6 coverage.
+ */
 var path = require('path');
 var schema = require(path.join(__dirname, '..', 'schema', 'schema-sample.js'));
 var SCHEMA_ENGINE = require(path.join(__dirname, '..', 'js', 'schema-engine.js'));

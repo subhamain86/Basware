@@ -37,9 +37,8 @@
   var sharedSchemaError = null;
   var SHARED_SCHEMA_PATH = APSQL_SHARED_SCHEMA.DEFAULT_SHARED_SCHEMA_PATH;
 
-  function renderSharedSchemaStrip(elId, opts) {
+  function renderSharedSchemaStrip(elId) {
     var el = $(elId); if (!el) return;
-    opts = opts || {};
     var state = { checked: sharedSchemaChecked, found: sharedSchemaFound, error: sharedSchemaError, path: SHARED_SCHEMA_PATH };
     var status = APSQL_SHARED_SCHEMA.describeSharedSchemaStatus(state);
     el.className = 'shared-schema-strip level-' + status.level;
@@ -226,10 +225,7 @@
   }
 
   /* ================================================================
-     CROSS-DEVICE SCHEMA SYNC — OPTION B: GitHub (administrator-facing
-     push/pull with a Personal Access Token). This is also the mechanism
-     that powers the new V10.5 explicit "Upload to Shared Location" /
-     "Delete from Shared Location" actions below.
+     CROSS-DEVICE SCHEMA SYNC — OPTION B: GitHub (administrator-facing)
      ================================================================ */
   var githubConfigStore = APSQL_GITHUB_SYNC.createConfigStore();
   var githubConfig = null;
@@ -369,12 +365,7 @@
   renderSchemaPersistenceStatus();
 
   /* ================================================================
-     V10.5: Explicit Upload / Delete directly at the Shared Schema
-     Location — separate, explicit actions distinct from the always-on
-     background sync in persistCurrentSchema() above. These live inside
-     the Smart Schema Import Engine's Preview Changes card and the Delete
-     Current Schema confirmation modal, and both act on the SAME GitHub
-     connection (Option B) configured above.
+     Explicit Upload / Delete directly at the Shared Schema Location
      ================================================================ */
   function refreshSharedLocationActionAvailability() {
     var uploadBox = $('publishToSharedLocationCheckbox');
@@ -485,10 +476,11 @@
 
   var QS_BADGE_COLORS = ['badge-teal', 'badge-indigo', 'badge-orange', 'badge-purple', 'badge-pink', 'badge-blue'];
   var QUICK_EXAMPLES = [
-    { ic: '&#128196;', title: 'Invoice overview', desc: 'Key invoice fields at a glance.', tables: ['IA_INVOICE'], columns: [{ table: 'IA_INVOICE', column: 'INVOICE_NUMBER' }, { table: 'IA_INVOICE', column: 'GROSS_SUM' }, { table: 'IA_INVOICE', column: 'DUE_DATE' }] },
-    { ic: '&#128176;', title: 'Invoices by status', desc: 'Grouped totals — a good starting point for a spend report.', tables: ['IA_INVOICE'], columns: [{ table: 'IA_INVOICE', column: 'STATUS', decode: true, alias: 'StatusLabel' }] },
-    { ic: '&#129513;', title: 'Invoice coding detail', desc: 'Accounting split lines with cost centers.', tables: ['IA_INVOICE_LINE'], columns: [{ table: 'IA_INVOICE_LINE', column: 'ACCOUNT_CODE' }, { table: 'IA_INVOICE_LINE', column: 'COST_CENTER_CODE' }, { table: 'IA_INVOICE_LINE', column: 'NET_SUM' }] },
-    { ic: '&#128100;', title: 'Users and login types', desc: 'Full name, email, and a data-type-safe decoded login type.', tables: ['ADM_USER_DATA'], columns: [{ table: 'ADM_USER_DATA', column: 'FULL_NAME' }, { table: 'ADM_USER_DATA', column: 'EMAIL' }, { table: 'ADM_USER_DATA', column: 'LOGIN_TYPE', decode: true, alias: 'LoginType' }] },
+    { ic: '&#128100;', title: 'Users whose login is allowed', desc: 'A simple single-table filter — resolved automatically.', text: 'Show all users whose login is allowed.' },
+    { ic: '&#9989;', title: 'Active users, group & exclusion', desc: 'Multi-table join, filter, exclusion, and sort — all automatic.', text: 'Show all active users with their email address and user group, exclude Basware users, and sort by login account.' },
+    { ic: '&#127974;', title: 'Active suppliers', desc: 'Table + columns + filter, identified from plain language.', text: 'Show supplier name and supplier code for active suppliers.' },
+    { ic: '&#128176;', title: 'Total invoiced per supplier', desc: 'Aggregation (SUM) with an automatic GROUP BY and join.', text: 'Show the total gross amount grouped by supplier.' },
+    { ic: '&#128231;', title: 'Supplier email addresses', desc: 'Maps everyday wording to the right schema column.', text: 'Show the supplier email address.' },
     { ic: '&#127760;', title: 'Supervisor chain (recursive)', desc: 'Walk the whole reporting hierarchy in one query.', hierarchy: 'ADM_USER_DATA' }
   ];
   (function initQuickStart() {
@@ -500,9 +492,15 @@
       card.addEventListener('click', function () {
         var q = QUICK_EXAMPLES[+card.getAttribute('data-i')];
         showView('builder');
-        if (q.hierarchy) { $('optHierarchy').value = q.hierarchy; selectedTables = [q.hierarchy]; columnState = {}; refreshTablesColumnsUI(); }
-        else { $('optHierarchy').value = ''; selectedTables = q.tables.slice(); columnState = {}; q.columns.forEach(function (c) { ensureColState(c.table)[c.column] = { checked: true, alias: c.alias || '', decode: !!c.decode, elseMode: 'convert' }; }); refreshTablesColumnsUI(); }
-        runGenerate();
+        if (q.hierarchy) {
+          resetQueryState(false);
+          $('optHierarchy').value = q.hierarchy; selectedTables = [q.hierarchy]; columnState = {}; refreshTablesColumnsUI();
+          runGenerate();
+        } else {
+          resetQueryState(false);
+          $('promptInput').value = q.text;
+          runGenerate();
+        }
       });
     });
     refreshModuleChips();
@@ -693,11 +691,6 @@
     (tableNames && tableNames.length ? tableNames : allTables().map(function (t) { return t.name; })).forEach(function (tname) { var t = engine.getTable(tname); if (!t) return; t.columns.forEach(function (c) { opts.push({ table: tname, column: c.name }); }); });
     return opts;
   }
-  /* V10.5: renderFilterGroup now also toggles the value input's
-     placeholder text (and adds a small inline hint) whenever the
-     selected operator is a multi-value one ("Is one of" / "Is not one
-     of"), so users know to enter a comma-separated list rather than a
-     single value. Every other behavior is unchanged from before. */
   function renderFilterGroup(containerEl, filterGroup, availableTables, onChange) {
     containerEl.innerHTML = '';
     var colOptions = columnOptionsForTables(availableTables);
@@ -915,7 +908,7 @@
   $('optHavingClearBtn').addEventListener('click', function () { $('optHaving').value = ''; });
   $('optHierarchyClearBtn').addEventListener('click', function () { $('optHierarchy').value = ''; });
 
-  var KW = /\b(SELECT|FROM|WHERE|JOIN|LEFT|INNER|ON|AND|OR|GROUP BY|ORDER BY|HAVING|DISTINCT|AS|TOP|FETCH FIRST|ROWS ONLY|BETWEEN|IN|LIMIT|CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|EXISTS|NOT|LIKE|IS NULL|IS NOT NULL)\b/g;
+  var KW = /\b(SELECT|FROM|WHERE|JOIN|LEFT|INNER|ON|AND|OR|GROUP BY|ORDER BY|HAVING|DISTINCT|AS|TOP|FETCH FIRST|ROWS ONLY|BETWEEN|IN|LIMIT|CASE|WHEN|THEN|ELSE|END|WITH|RECURSIVE|EXISTS|NOT|LIKE|IS NULL|IS NOT NULL|COUNT|SUM|AVG|MIN|MAX)\b/g;
   function highlight(sql) { var e = esc(sql); e = e.replace(/'([^']*)'/g, "<span class='sql-str'>'$1'</span>"); e = e.replace(KW, "<span class='sql-kw'>$1</span>"); return e; }
 
   function renderSuggestedFixes(message) {
@@ -940,6 +933,7 @@
       var alertClass = res.status === 'rejected' ? 'alert-danger' : 'alert-warning';
       body.innerHTML = '<div class="alert ' + alertClass + ' mb-2"><strong>' + titleText + '</strong><br>' + esc(res.message) + '</div>' + renderSuggestedFixes(res.message);
       $('copyBtn').classList.add('d-none'); $('optimizeBtn').classList.add('d-none'); $('optimizeReportBox').innerHTML = '';
+      $('explainBtn').classList.add('d-none'); $('explanationReportBox').innerHTML = ''; $('explanationReportBox').classList.add('d-none');
       return;
     }
     var tables = (res.tablesUsed || []).map(function (t) { return '<span class="badge text-bg-light border me-1">' + t + '</span>'; }).join('');
@@ -948,6 +942,7 @@
     var assumptions = (res.assumptions || []).map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('');
     body.innerHTML = '<div class="alert alert-success py-2 mb-2"><small>&#9989; Query validated against active schema (' + esc(res.dialect || '') + ', read-only)</small></div><pre class="sql-output mb-3">' + highlight(res.sql) + '</pre><div class="small mb-2"><strong>Tables Used:</strong><br>' + (tables || '<span class="text-body-secondary">None</span>') + '</div><div class="small mb-2"><strong>Columns Used:</strong><br>' + (cols || '<span class="text-body-secondary">None (aggregated query)</span>') + '</div><div class="small mb-2"><strong>Filters Applied:</strong><ul class="mb-0">' + filters + '</ul></div><div class="small"><strong>Assumptions:</strong><ul class="mb-0">' + assumptions + '</ul></div>';
     $('copyBtn').classList.remove('d-none'); $('optimizeBtn').classList.remove('d-none'); $('optimizeReportBox').innerHTML = '';
+    $('explainBtn').classList.remove('d-none');
   }
   $('copyBtn').addEventListener('click', function () { if (lastResult && lastResult.status === 'ok') { navigator.clipboard && navigator.clipboard.writeText(lastResult.sql); var old = $('copyBtn').innerHTML; $('copyBtn').innerHTML = '&#9989; Copied'; setTimeout(function () { $('copyBtn').innerHTML = old; }, 1300); } });
   $('optimizeBtn').addEventListener('click', function () {
@@ -956,6 +951,69 @@
     if (opt.hasChanges) { lastResult = Object.assign({}, lastResult, { sql: opt.optimizedSql }); renderResult(lastResult); }
     renderOptimizeReport('optimizeReportBox', opt);
   });
+
+  /* ================================================================
+     V10.6: "Explain This Query" — plain-language explanation of the
+     LAST interpretation produced by Describe What You Need (requirement
+     24). If the user built purely via the manual Query Builder (no
+     description ever entered), a helpful fallback message is shown
+     instead of a blank panel.
+     ================================================================ */
+  var lastInterpretation = null;
+  $('explainBtn').addEventListener('click', function () {
+    var box = $('explanationReportBox');
+    var isHidden = box.classList.contains('d-none');
+    if (!isHidden) { box.classList.add('d-none'); return; }
+    var lines = lastInterpretation ? APSQL_NLQUERY.explainInterpretation(lastInterpretation) : [];
+    if (!lines.length) {
+      box.innerHTML = '<div class="alert alert-secondary py-2 mb-0 small">This query was built manually (or nothing to explain yet). Describe your requirement above and click Build Query to see a plain-language explanation here.</div>';
+    } else {
+      box.innerHTML = '<div class="alert alert-secondary py-2 mb-0 small"><strong><i class="bi bi-lightbulb-fill me-1"></i>This query:</strong><ul class="mt-1 mb-0">' + lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
+    }
+    box.classList.remove('d-none');
+  });
+
+  /* ================================================================
+     V10.6: Confidence checklist + ambiguity clarification rendering
+     ================================================================ */
+  function renderConfidenceChecklist(interpretation) {
+    var box = $('confidenceChecklistBox');
+    if (!interpretation || (!interpretation.tables.length && !interpretation.warnings.length)) { box.innerHTML = ''; return; }
+    var c = interpretation.confidence || {};
+    var items = [];
+    items.push({ ok: c.tableIdentified, label: 'Table identified' });
+    items.push({ ok: c.columnsIdentified, label: 'Columns identified' });
+    items.push({ ok: c.relationshipsIdentified, label: 'Relationships identified' });
+    items.push({ ok: !c.hasAmbiguities, label: c.hasAmbiguities ? 'Some terms need clarification' : 'Filters identified' });
+    var html = '<ul>' + items.map(function (it) { return '<li class="' + (it.ok ? 'ok' : 'warn') + '"><i class="bi ' + (it.ok ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill') + '"></i>' + esc(it.label) + '</li>'; }).join('') + '</ul>';
+    if (c.unresolvedJoins && c.unresolvedJoins.length) html += '<div class="text-body-secondary mt-1">&#9888;&#65039; Unable to automatically connect: ' + esc(c.unresolvedJoins.join(', ')) + '. You can connect these manually in Advanced Options.</div>';
+    box.innerHTML = html;
+  }
+  function renderAmbiguityBox(interpretation) {
+    var box = $('ambiguityBox');
+    if (!interpretation || !interpretation.ambiguities || !interpretation.ambiguities.length) { box.classList.add('d-none'); box.innerHTML = ''; return; }
+    var html = '<div class="fw-semibold small mb-2"><i class="bi bi-question-circle-fill me-1"></i>A few terms in your description could mean more than one thing. Please choose the intended condition:</div>';
+    interpretation.ambiguities.forEach(function (amb, ai) {
+      html += '<div class="ambiguity-term-title">&#8220;' + esc(amb.term) + '&#8221; could refer to:</div><div class="ambiguity-option-row" data-amb="' + ai + '">';
+      amb.options.forEach(function (opt, oi) {
+        html += '<button type="button" class="btn btn-outline-primary btn-sm ambiguity-option-btn" data-amb="' + ai + '" data-opt="' + oi + '">' + esc(opt.table + '.' + opt.column) + (opt.description ? '<span class="opt-desc">' + esc(opt.description) + '</span>' : '') + '</button>';
+      });
+      html += '</div>';
+    });
+    box.innerHTML = html;
+    box.classList.remove('d-none');
+    box.querySelectorAll('.ambiguity-option-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var ai = +btn.getAttribute('data-amb'), oi = +btn.getAttribute('data-opt');
+        var amb = interpretation.ambiguities[ai]; var opt = amb.options[oi];
+        readOnlyFilterGroup.conditions.push(APSQL_FILTER.newCondition({ table: opt.table, column: opt.column, operator: 'eq', value: '1' }));
+        if (selectedTables.indexOf(opt.table) === -1) selectedTables.push(opt.table);
+        box.classList.add('d-none'); box.innerHTML = '';
+        refreshTablesColumnsUI();
+        runGenerate();
+      });
+    });
+  }
 
   function describeAdvancedOptions() {
     var lines = [];
@@ -967,6 +1025,9 @@
     if (scalarRows.length) lines.push('Add related counts from: ' + scalarRows.map(function (r) { return r.relatedTable; }).join(', '));
     var having = $('optHaving').value.trim(); if (having) lines.push('Filter on totals: ' + having);
     var hier = $('optHierarchy').value; if (hier) lines.push('Show full hierarchy for: ' + hier);
+    if (nlAggregates.length) lines.push('Calculated from your description: ' + nlAggregates.map(function (a) { return a.aggregate + '(' + (a.column === '*' ? '*' : (a.table + '.' + a.column)) + ')'; }).join(', '));
+    if (nlGroupBy.length) lines.push('Grouped by (from your description): ' + nlGroupBy.map(function (g) { return g.table + '.' + g.column; }).join(', '));
+    if (nlHaving) lines.push('Having (from your description): ' + nlHaving);
     return lines;
   }
   function renderRequirementsSummary() {
@@ -997,10 +1058,21 @@
     Object.keys(columnState).forEach(function (tname) { Object.keys(columnState[tname]).forEach(function (cname) { var s = columnState[tname][cname]; if (s.checked) { var entry = { table: tname, column: cname }; if (s.alias) entry.alias = s.alias; if (s.decode) { entry.decode = true; entry.elseMode = s.elseMode || 'convert'; } out.push(entry); } }); });
     return out;
   }
+  /* V10.6: persistent state driven by the "Describe What You Need"
+     intelligent engine's aggregate/GROUP BY/HAVING detection. These
+     accumulate across successive "Build Query" clicks exactly like the
+     existing manual state (selectedTables/columnState/filterGroup),
+     enabling iterative, conversational refinement (requirement 22). */
+  var nlAggregates = [];
+  var nlGroupBy = [];
+  var nlHaving = null;
+
   function buildOptions() {
     var opts = { dialect: $('dialectSel').value };
     if (selectedTables.length) opts.selectedTables = selectedTables.slice();
-    var cols = collectSelectedColumns(); if (cols.length) opts.selectedColumns = cols;
+    var cols = collectSelectedColumns();
+    nlAggregates.forEach(function (a) { cols.push({ table: a.table, column: a.column, aggregate: a.aggregate, alias: a.alias }); });
+    if (cols.length) opts.selectedColumns = cols;
     if (readOnlyFilterGroup.conditions.length) opts.filterGroup = readOnlyFilterGroup;
     if ($('optDistinct2').checked) opts.distinct = true;
     opts.join = $('optJoinLeft').checked ? 'LEFT' : 'INNER';
@@ -1010,14 +1082,26 @@
     var hier = $('optHierarchy').value; if (hier) opts.recursiveHierarchy = { table: hier };
     if (existsRows.length) opts.existsFilters = existsRows.map(function (r) { return { relatedTable: r.relatedTable, negate: r.negate }; });
     if (scalarRows.length) opts.scalarSubqueries = scalarRows.map(function (r) { return { relatedTable: r.relatedTable }; });
-    var having = $('optHaving').value.trim(); if (having) opts.having = having;
+    var groupByStrings = nlGroupBy.map(function (g) { return g.table + '.' + g.column; });
+    if (groupByStrings.length) opts.groupBy = groupByStrings;
+    var having = $('optHaving').value.trim();
+    if (having) opts.having = having;
+    else if (nlHaving) opts.having = nlHaving;
     return opts;
   }
 
+  /* V10.6: the "Describe What You Need" pipeline now calls the new
+     intelligent engine (interpretRequirement) instead of the older
+     interpretDescription, and merges its much richer results (tables,
+     columns, filters, sort, aggregates, GROUP BY, HAVING) into the SAME
+     persistent state used by the manual Query Builder — this is exactly
+     what enables Hybrid Mode (requirement 16): a user can describe part
+     of a query, then refine the rest manually, or vice versa. */
   function applyDescriptionToSelection() {
     var text = $('promptInput').value.trim();
-    if (!text) { $('descriptionInterpretationBox').innerHTML = ''; return; }
-    var interpretation = APSQL_NLQUERY.interpretDescription(text, engine, {});
+    if (!text) { $('descriptionInterpretationBox').innerHTML = ''; $('confidenceChecklistBox').innerHTML = ''; $('ambiguityBox').classList.add('d-none'); lastInterpretation = null; return; }
+    var interpretation = APSQL_NLQUERY.interpretRequirement(text, engine, {});
+    lastInterpretation = interpretation;
 
     selectedTables = APSQL_NLQUERY.mergeTableLists(selectedTables, interpretation.tables);
 
@@ -1025,8 +1109,17 @@
     var mergedCols = APSQL_NLQUERY.mergeColumnLists(manualColsFlat, interpretation.columns);
     mergedCols.forEach(function (c) {
       var state = ensureColState(c.table);
-      if (!state[c.column]) state[c.column] = { checked: true, alias: c.alias || '', decode: false, elseMode: 'convert' };
-      else state[c.column].checked = true;
+      if (!state[c.column]) state[c.column] = { checked: true, alias: c.alias || '', decode: !!c.decode, elseMode: 'convert' };
+      else { state[c.column].checked = true; if (c.decode) state[c.column].decode = true; }
+    });
+    /* Upgrade-in-place: if the interpretation flagged decode:true for a
+       column that was ALREADY selected (manually or from a prior turn),
+       ensure decode gets switched on even though mergeColumnLists itself
+       only adds brand-new entries for tables with zero manual columns. */
+    interpretation.columns.forEach(function (c) {
+      if (!c.decode) return;
+      var state = ensureColState(c.table);
+      if (state[c.column]) state[c.column].decode = true;
     });
 
     readOnlyFilterGroup.conditions = APSQL_NLQUERY.mergeFilterConditions(readOnlyFilterGroup.conditions, interpretation.filterConditions).map(function (c) {
@@ -1040,8 +1133,14 @@
     if (interpretation.distinct) $('optDistinct2').checked = true;
     if (!$('optHierarchy').value && interpretation.hierarchyTable) $('optHierarchy').value = interpretation.hierarchyTable;
 
+    nlAggregates = APSQL_NLQUERY.mergeAggregates(nlAggregates, interpretation.aggregates);
+    nlGroupBy = APSQL_NLQUERY.mergeGroupBy(nlGroupBy, interpretation.groupBy);
+    if (interpretation.having && !nlHaving) nlHaving = interpretation.having;
+
     refreshTablesColumnsUI();
     renderDescriptionInterpretationBox(interpretation);
+    renderConfidenceChecklist(interpretation);
+    renderAmbiguityBox(interpretation);
   }
   function renderDescriptionInterpretationBox(interpretation) {
     var box = $('descriptionInterpretationBox'); if (!box) return;
@@ -1049,7 +1148,7 @@
     var hasWarnings = interpretation.warnings && interpretation.warnings.length;
     if (!hasMatched && !hasWarnings) { box.innerHTML = ''; return; }
     var parts = [];
-    if (hasMatched) parts.push('<strong><i class="bi bi-chat-left-text-fill me-1"></i>Interpreted from your description:</strong><ul class="mt-1 mb-0">' + interpretation.matched.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>');
+    if (hasMatched) parts.push('<strong><i class="bi bi-chat-left-text-fill me-1"></i>I understood your request as:</strong><ul class="mt-1 mb-0">' + interpretation.matched.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>');
     if (hasWarnings) parts.push('<div class="' + (hasMatched ? 'mt-2 ' : '') + 'text-body-secondary small">' + interpretation.warnings.map(esc).join('<br>') + '</div>');
     box.innerHTML = '<div class="alert alert-info py-2 mb-0 small">' + parts.join('') + '</div>';
   }
@@ -1060,12 +1159,39 @@
     var opts = buildOptions();
     var res = APSQL_ENGINE.generateSql(promptText, opts, engine, decodeStore);
     renderResult(res);
+    if (lastInterpretation && lastInterpretation.confidence) lastInterpretation.confidence.sqlValidated = (res.status === 'ok');
     showView('builder');
     $('resultBody').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   $('generateBtn').addEventListener('click', runGenerate);
   $('generateFromDescriptionBtn').addEventListener('click', runGenerate);
   $('promptInput').addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runGenerate(); });
+
+  /* V10.6: "Start Over" — fully clears BOTH the NL-driven state and the
+     manual selections, for a genuinely fresh conversational start
+     (requirement 22). `alsoClearPrompt` defaults to true; the Quick
+     Start example cards pass false so they can set their own prompt
+     text right after resetting. */
+  function resetQueryState(alsoClearPrompt) {
+    if (alsoClearPrompt !== false) $('promptInput').value = '';
+    selectedTables = []; columnState = {};
+    readOnlyFilterGroup.conditions = [];
+    sortRows = []; existsRows = []; scalarRows = [];
+    nlAggregates = []; nlGroupBy = []; nlHaving = null;
+    $('optJoinInner').checked = true; syncJoinChoiceHighlight();
+    $('optLimit').value = ''; $('optView').value = ''; $('optHaving').value = ''; $('optHierarchy').value = '';
+    $('optDistinct2').checked = false;
+    lastInterpretation = null; lastResult = null;
+    $('descriptionInterpretationBox').innerHTML = ''; $('confidenceChecklistBox').innerHTML = '';
+    $('ambiguityBox').classList.add('d-none'); $('ambiguityBox').innerHTML = '';
+    $('explanationReportBox').classList.add('d-none'); $('explanationReportBox').innerHTML = '';
+    $('optimizeReportBox').innerHTML = '';
+    $('copyBtn').classList.add('d-none'); $('optimizeBtn').classList.add('d-none'); $('explainBtn').classList.add('d-none');
+    $('resultBody').innerHTML = '<p class="text-body-secondary small mb-0">Your generated SQL will appear here as soon as you click Build Query.</p>';
+    refreshTablesColumnsUI();
+  }
+  $('resetQueryBtn').addEventListener('click', function () { resetQueryState(true); });
+
   refreshTablesColumnsUI(); refreshHierarchyOptions();
 
   var crCommand = 'INSERT'; var crTable = ''; var crInsertColumns = {}; var crUpdateColumns = {}; var crFilterGroup = { conditions: [] }; var crLastResult = null;
@@ -1179,7 +1305,7 @@
   function crApplyDescriptionToSelection() {
     var text = $('crDescriptionInput').value.trim();
     if (!text) { $('crDescriptionInterpretationBox').innerHTML = ''; return; }
-    var interpretation = APSQL_NLQUERY.interpretCrDescription(text, engine, {});
+    var interpretation = APSQL_NLQUERY.interpretCrRequirement(text, engine, {});
 
     if (interpretation.command) {
       crCommand = interpretation.command;
@@ -1288,7 +1414,7 @@
   var aboutModalEl = $('aboutModal'); var aboutModal = window.bootstrap ? new window.bootstrap.Modal(aboutModalEl) : null;
   $('aboutMenuBtn').addEventListener('click', function () {
     var st = engine.getStatus();
-    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.5.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both, with IN/NOT IN multi-value filters \u2014 correcting SQL queries based on database errors, and automatically using a live, zero-configuration shared schema on every device and browser, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. The Live Shared Schema check is a plain, unauthenticated, same-origin file read. Schema updates, deletions, and manually-defined relationships remain password-protected and re-verified before every mutating action, whether saved locally, to a linked shared file, or pushed to/deleted from GitHub via the Shared Schema Location actions.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
+    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.6.0'], ['Purpose', 'Describe What You Need is now an intelligent, schema-aware SQL assistant: it automatically identifies tables, columns, relationships/joins, filters (including exclusions, boolean flags, and date ranges), aggregations, GROUP BY, decode logic, and sorting from plain language, with no manual selection required. The structured Query Builder, Change Request builder, and Error Rectifier remain fully available for precise manual control, and all approaches can be combined (Hybrid Mode).'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'The Read Only Query Builder\u2014whether driven by description, manual selection, or both\u2014only ever emits read-only SELECT statements; it never generates or executes INSERT/UPDATE/DELETE. The CR builder and Error Rectifier only ever produce SQL text for review and never execute it, connect to a database, or modify the active schema. All generated SQL is validated against the active schema before being displayed. Schema updates, deletions, and manually-defined relationships remain password-protected and re-verified before every mutating action.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
     closeMenu(); if (aboutModal) aboutModal.show(); else aboutModalEl.classList.add('show');
   });
 
@@ -1379,11 +1505,7 @@
       relationshipStore.clearAll(); relationshipDrafts = {};
       rebuildEngine();
       schemaLoadedFromStorage = true; persistCurrentSchema(); renderSchemaPersistenceStatus();
-      selectedTables = []; columnState = {}; readOnlyFilterGroup.conditions = [];
-      sortRows = []; existsRows = []; scalarRows = [];
-      $('optJoinInner').checked = true; syncJoinChoiceHighlight();
-      $('optLimit').value = ''; $('optView').value = ''; $('optHaving').value = ''; $('optHierarchy').value = '';
-      $('promptInput').value = ''; $('descriptionInterpretationBox').innerHTML = '';
+      resetQueryState(true);
       crInsertColumns = {}; crUpdateColumns = {}; crFilterGroup.conditions = []; $('crDescriptionInput').value = ''; $('crDescriptionInterpretationBox').innerHTML = '';
       refreshAllViewsAfterSchemaChange();
       if (deleteSchemaModal) deleteSchemaModal.hide();
@@ -1467,16 +1589,16 @@
 
   var TOURS = {
     quickstart: [
-      { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and helps correct a SQL query when a database gives you back an error.</p>' },
-      { sel: '[data-tour="shared-schema-strip"]', place: 'bottom', title: 'Live Shared Schema', body: '<p>Every device and browser that opens this app automatically checks for a published shared schema \u2014 no setup required. This status line tells you whether one is currently in use.</p>' },
-      { sel: '#qsExampleGrid', place: 'top', title: 'Try an example', body: '<p>Click any card to load a ready-made example straight into the Read Only Query Builder.</p>' },
+      { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>Describe What You Need is now an intelligent, schema-aware SQL assistant. It writes read-only SQL, Change Request SQL, and helps correct SQL after a database error.</p>' },
+      { sel: '[data-tour="shared-schema-strip"]', place: 'bottom', title: 'Live Shared Schema', body: '<p>Every device and browser automatically checks for a published shared schema \u2014 no setup required.</p>' },
+      { sel: '#qsExampleGrid', place: 'top', title: 'Try an example', body: '<p>Click any card to run a ready-made natural-language example, from simple to complex, with zero manual selection.</p>' },
       { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Two ways to build a query', body: '<p>Describe what you need in plain language, make selections manually, or combine both.</p>' }
     ],
     builder: [
-      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request here and click Build Query. Try "status is one of 10, 40" for a multi-value filter.</p>' },
-      { sel: '[data-tour="describe-build"]', place: 'top', title: 'Build Query works right here too', body: '<p>This button and the one below the tabs do exactly the same thing.</p>' },
-      { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, and copy', body: '<p>The validated SQL appears here.</p>' },
-      { sel: '[data-tour="tabs"]', place: 'top', title: 'Tables & Columns, Advanced Options, Requirements', body: '<p>Anything you select manually is combined with your description. Try the new "Is one of" / "Is not one of" filter operators for IN / NOT IN clauses.</p>' }
+      { sel: '[data-tour="prompt"]', place: 'bottom', title: 'Describe What You Need', body: '<p>Type a plain-English request \u2014 simple or complex \u2014 and click Build Query. Tables, joins, filters, and aggregations are found automatically. No manual selection required.</p>' },
+      { sel: '[data-tour="describe-build"]', place: 'top', title: 'Build, refine, and start over', body: '<p>After building, add more to your description and click Build Query again to refine the same query conversationally. Use "Start Over" for a completely fresh start.</p>' },
+      { sel: '[data-tour="results"]', place: 'left', title: 'Review, optimize, explain, and copy', body: '<p>The validated SQL appears here. Click "Explain This Query" for a plain-language breakdown.</p>' },
+      { sel: '[data-tour="tabs"]', place: 'top', title: 'Manual Query Builder — fully optional', body: '<p>Tables & Columns, Advanced Options, and Filters remain available for precise manual control, and combine naturally with your description (Hybrid Mode).</p>' }
     ],
     crbuilder: [
       { sel: '#crCommandSelector', place: 'bottom', title: 'Query Type', body: '<p>Choose INSERT, UPDATE, or DELETE manually, or let your description decide.</p>' },
@@ -1490,9 +1612,9 @@
     ],
     updateschema: [
       { sel: '#schemaPersistenceStatus', place: 'bottom', title: 'Your schema changes are saved', body: '<p>Saved in this browser.</p>' },
-      { sel: '[data-tour="shared-schema-card"]', place: 'bottom', title: 'Live Shared Schema', body: '<p>This is what makes the schema available automatically on every device and browser, with zero setup on their end. Point GitHub Sync\u2019s File Path at this exact location to publish.</p>' },
+      { sel: '[data-tour="shared-schema-card"]', place: 'bottom', title: 'Live Shared Schema', body: '<p>This is what makes the schema available automatically on every device and browser, with zero setup on their end.</p>' },
       { sel: '[data-tour="sync-card"]', place: 'bottom', title: 'Option A — a shared file (Chrome/Edge)', body: '<p>Link the schema to a single shared file. This needs a Chromium browser.</p>' },
-      { sel: '[data-tour="github-sync-card"]', place: 'bottom', title: 'Option B — sync via GitHub', body: '<p>Works in every browser. This is also what powers the new Upload/Delete actions directly at the Shared Schema Location, found in the Smart Schema Import Engine and Danger Zone below.</p>' },
+      { sel: '[data-tour="github-sync-card"]', place: 'bottom', title: 'Option B — sync via GitHub', body: '<p>Works in every browser. Also powers the Upload/Delete actions at the Shared Schema Location.</p>' },
       { sel: '#updateSchemaPasswordStep', place: 'bottom', title: 'Password-protected administrator action', body: '<p>Only authorized users can update the schema.</p>' }
     ],
     errorrectifier: [

@@ -2,9 +2,9 @@
   'use strict';
   var schema = {
     schema_name: 'AP-SQL Assistant Embedded Schema',
-    schema_version: '7.0',
-    last_updated: '2026-09-07',
-    source_documents: ['Embedded sample — replace via Schema > Update Schema'],
+    schema_version: '7.1',
+    last_updated: '2026-09-09',
+    source_documents: ['Embedded sample — replace via Schema > Update Schema', 'V10.6: added LOGIN_ACCOUNT/LOGIN_ALLOWED, ADM_USER_GROUP(_MEMBER), IA_SUPPLIER.SUPPLIER_EMAIL, IA_INVOICE.CREATED_DATE to support the richer natural-language engine.'],
     module_labels: { IA: 'Invoice Automation', OM: 'Order Management', PP: 'Purchase Process', PE: 'Payment Execution', ADM: 'Administration' },
     tables: [
       { name: 'IA_INVOICE', module: 'IA', notes: 'Header-level invoice information', columns: [
@@ -15,7 +15,8 @@
         { name: 'GROSS_SUM', type: 'NUMBER(19,2)', nullable: false, primary_key: false, foreign_key: null, alias: 'Amount', description: 'Total invoice amount including tax', decode: null },
         { name: 'CURRENCY_CODE', type: 'VARCHAR(3)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'ISO currency code', decode: null },
         { name: 'DUE_DATE', type: 'DATE', nullable: true, primary_key: false, foreign_key: null, alias: '', description: 'Payment due date', decode: null },
-        { name: 'STATUS', type: 'NUMBER(5)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Workflow status of the invoice', decode: [{ code: '0', label: 'Draft' }, { code: '10', label: 'Received' }, { code: '40', label: 'Approved' }, { code: '90', label: 'Transferred' }] }
+        { name: 'STATUS', type: 'NUMBER(5)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Workflow status of the invoice', decode: [{ code: '0', label: 'Draft' }, { code: '10', label: 'Received' }, { code: '40', label: 'Approved' }, { code: '90', label: 'Transferred' }] },
+        { name: 'CREATED_DATE', type: 'DATE', nullable: true, primary_key: false, foreign_key: null, alias: '', description: 'Date the invoice was created / received in the system', decode: null }
       ] },
       { name: 'IA_INVOICE_LINE', module: 'IA', notes: 'Coding / accounting split lines for an invoice', columns: [
         { name: 'LINE_ID', type: 'INTEGER', nullable: false, primary_key: true, foreign_key: null, alias: '', description: 'Unique identifier for the invoice line', decode: null },
@@ -29,7 +30,8 @@
         { name: 'SUPPLIER_NAME', type: 'VARCHAR(250)', nullable: false, primary_key: false, foreign_key: null, alias: 'Name', description: 'Name of the supplier company', decode: null },
         { name: 'SUPPLIER_CODE', type: 'VARCHAR(30)', nullable: true, primary_key: false, foreign_key: null, alias: '', description: 'Supplier reference code', decode: null },
         { name: 'IS_ACTIVE', type: 'NUMBER(1)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Whether the supplier is currently active', decode: [{ code: '0', label: 'No' }, { code: '1', label: 'Yes' }] },
-        { name: 'PARENT_SUPPLIER_ID', type: 'INTEGER', nullable: true, primary_key: false, foreign_key: { table: 'IA_SUPPLIER', column: 'SUPPLIER_ID' }, alias: '', description: 'Parent company in the supplier hierarchy', decode: null }
+        { name: 'PARENT_SUPPLIER_ID', type: 'INTEGER', nullable: true, primary_key: false, foreign_key: { table: 'IA_SUPPLIER', column: 'SUPPLIER_ID' }, alias: '', description: 'Parent company in the supplier hierarchy', decode: null },
+        { name: 'SUPPLIER_EMAIL', type: 'VARCHAR(150)', nullable: true, primary_key: false, foreign_key: null, alias: '', description: 'Supplier contact email address', decode: null }
       ] },
       { name: 'OM_ORDER', module: 'OM', notes: 'Purchase order header', columns: [
         { name: 'ORDER_ID', type: 'INTEGER', nullable: false, primary_key: true, foreign_key: null, alias: '', description: 'Unique identifier for the order', decode: null },
@@ -73,7 +75,20 @@
         { name: 'EMAIL', type: 'VARCHAR(150)', nullable: true, primary_key: false, foreign_key: null, alias: '', description: 'Email address', decode: null },
         { name: 'SUPERVISOR_USER_ID', type: 'INTEGER', nullable: true, primary_key: false, foreign_key: { table: 'ADM_USER_DATA', column: 'USER_ID' }, alias: '', description: 'This user\'s supervisor (self-referencing hierarchy)', decode: null },
         { name: 'IS_ACTIVE', type: 'NUMBER(1)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Whether the user account is active', decode: [{ code: '0', label: 'No' }, { code: '1', label: 'Yes' }] },
-        { name: 'LOGIN_TYPE', type: 'NUMBER(5)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'How this user authenticates', decode: [{ code: '0', label: 'Forms' }, { code: '1', label: 'Windows Domain (deprecated)' }, { code: '2', label: 'Alusta Single-Sign-On' }, { code: '4', label: 'Basware Access' }, { code: '99', label: 'Inherited from home organization unit' }] }
+        { name: 'LOGIN_TYPE', type: 'NUMBER(5)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'How this user authenticates', decode: [{ code: '0', label: 'Forms' }, { code: '1', label: 'Windows Domain (deprecated)' }, { code: '2', label: 'Alusta Single-Sign-On' }, { code: '4', label: 'Basware Access' }, { code: '99', label: 'Inherited from home organization unit' }] },
+        { name: 'LOGIN_ACCOUNT', type: 'VARCHAR(80)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Login account (username) used to sign in', decode: null },
+        { name: 'COMPANY_ID', type: 'INTEGER', nullable: true, primary_key: false, foreign_key: { table: 'ADM_COMPANY', column: 'COMPANY_ID' }, alias: '', description: 'Company this user belongs to', decode: null },
+        { name: 'LOGIN_ALLOWED', type: 'NUMBER(1)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Whether this user is permitted to log in (login allowed)', decode: [{ code: '0', label: 'No' }, { code: '1', label: 'Yes' }] }
+      ] },
+      { name: 'ADM_USER_GROUP', module: 'ADM', notes: 'Named groups users can belong to (e.g. Finance, IT, Sales)', columns: [
+        { name: 'USER_GROUP_ID', type: 'INTEGER', nullable: false, primary_key: true, foreign_key: null, alias: '', description: 'Unique identifier for the user group', decode: null },
+        { name: 'USER_GROUP_NAME', type: 'VARCHAR(100)', nullable: false, primary_key: false, foreign_key: null, alias: '', description: 'Name of the user group (e.g. Finance, IT, Sales)', decode: null },
+        { name: 'DESCRIPTION', type: 'VARCHAR(250)', nullable: true, primary_key: false, foreign_key: null, alias: '', description: 'Description of the user group', decode: null }
+      ] },
+      { name: 'ADM_USER_GROUP_MEMBER', module: 'ADM', notes: 'Links users to the user groups they belong to (many-to-many)', columns: [
+        { name: 'MEMBER_ID', type: 'INTEGER', nullable: false, primary_key: true, foreign_key: null, alias: '', description: 'Unique identifier for this group membership', decode: null },
+        { name: 'USER_ID', type: 'INTEGER', nullable: false, primary_key: false, foreign_key: { table: 'ADM_USER_DATA', column: 'USER_ID' }, alias: '', description: 'User who is a member of the group', decode: null },
+        { name: 'USER_GROUP_ID', type: 'INTEGER', nullable: false, primary_key: false, foreign_key: { table: 'ADM_USER_GROUP', column: 'USER_GROUP_ID' }, alias: '', description: 'User group this membership belongs to', decode: null }
       ] }
     ]
   };

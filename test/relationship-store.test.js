@@ -19,9 +19,9 @@ test('clearManualRelationship / clearAll', function () {
 });
 test('createEffectiveEngine falls back to manual relationship when schema has none', function () {
   var store = RELATIONSHIPS.createRelationshipStore();
-  store.setManualRelationship('IA_INVOICE', 'COMPANY_ID', 'ADM_USER_DATA', 'USER_ID');
+  store.setManualRelationship('IA_INVOICE', 'COMPANY_ID', 'ADM_USER_GROUP', 'USER_GROUP_ID');
   var eff = RELATIONSHIPS.createEffectiveEngine(baseEngine, store);
-  assertTrue(eff.findRelationship('IA_INVOICE', 'ADM_USER_DATA') !== null);
+  assertTrue(eff.findRelationship('IA_INVOICE', 'ADM_USER_GROUP') !== null);
 });
 test('createEffectiveEngine prefers a real schema relationship over a manual one', function () {
   var store = RELATIONSHIPS.createRelationshipStore();

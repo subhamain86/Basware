@@ -31,7 +31,9 @@
     { match: function (m) { return /No documented relationship was found to join/.test(m); },
       suggest: 'One of your selected tables has no documented path connecting it to the others. Try removing it, or add a table in between that\u2019s related to both.' },
     { match: function (m) { return /No column was specified/.test(m); },
-      suggest: 'Make sure every filter row has a column chosen — an empty column selector will block the query from being built.' }
+      suggest: 'Make sure every filter row has a column chosen — an empty column selector will block the query from being built.' },
+    { match: function (m) { return /Could not identify any tables mentioned/.test(m); },
+      suggest: 'Try mentioning a specific concept from your data (e.g. "invoices", "suppliers", "users"), or switch to the Tables & Columns tab to select tables manually.' }
   ];
 
   function buildSuggestions(message) {

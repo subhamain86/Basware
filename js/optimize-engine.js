@@ -57,7 +57,7 @@
     var hasLimit = /\b(TOP\s+\d+|LIMIT\s+\d+|FETCH FIRST\s+\d+)/i.test(optimizedSql);
     var hasGroupBy = /\bGROUP BY\b/i.test(optimizedSql);
 
-    if (selectLike && !hierarchy && !hasWhere) {
+    if (selectLike && !hierarchy && !hasWhere && !hasGroupBy) {
       recommendations.push('This query has no WHERE condition, so it will return every row in ' + (result.tablesUsed ? result.tablesUsed.join(', ') : 'the table') + '. Consider adding a filter if you only need a subset of records.');
     }
 

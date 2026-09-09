@@ -125,19 +125,6 @@
     }, function () { return Promise.reject(new Error('Could not reach GitHub (network error). Check your internet connection and try again.')); });
   }
 
-  /**
-   * deleteRemoteFile(config, sha, fetchImpl) — V10.5 addition. Genuinely
-   * removes the file at the configured shared schema location from the
-   * repository (not just overwriting it with an empty schema), via
-   * GitHub's DELETE Contents API. `sha` must be the current sha of the
-   * file being deleted (obtained from a prior fetchRemoteSchema() call);
-   * this is required by GitHub's API as a safety check against deleting
-   * a version the caller hasn't actually seen. Resolves on success (200);
-   * rejects with a clear message for 401/403/404/409/422, and with
-   * {conflict:true} specifically for 409/404 (someone already
-   * changed/removed the file) so callers can re-fetch and decide what to
-   * do next, mirroring pushSchemaToGitHub()'s conflict handling.
-   */
   function deleteRemoteFile(config, sha, fetchImpl) {
     fetchImpl = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
     if (!fetchImpl) return Promise.reject(new Error('The fetch API is not available in this environment.'));
@@ -152,7 +139,7 @@
       if (res.status === 401) return Promise.reject(new Error('GitHub rejected the Personal Access Token (401 Unauthorized).'));
       if (res.status === 403) return Promise.reject(new Error('GitHub denied this delete (403 Forbidden). The token may be missing the required Contents: Read and write permission.'));
       if (res.status === 422) return Promise.reject(new Error('GitHub rejected this delete (422) \u2014 the repository, branch, or file path may not be valid.'));
-      if (res.status !== 200) return Promise.reject(new Error('GitHub returned an unexpected error (HTTP ' + res.status + ') while deleting the shared schema file.'));
+      if (res.status !== 200) return Promise.reject(new Error('GitHub returned an unexpected error (HTTP ' + res.status + ') while deleting the schema file.'));
       return { deleted: true };
     }, function () { return Promise.reject(new Error('Could not reach GitHub (network error). Check your internet connection and try again.')); });
   }

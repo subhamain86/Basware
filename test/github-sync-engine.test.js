@@ -202,7 +202,6 @@ test('end-to-end: create, then read it back, then update it, then read the updat
     .then(function (r2) { assertTrue(r2.exists); assertEqual(r2.schema.schema_name, 'V2'); });
 });
 
-/* ---- V10.5: deleteRemoteFile ---- */
 test('deleteRemoteFile rejects when config is incomplete, without making any network call', function () {
   var fetchImpl = makeFakeGitHubFetch({});
   return G.deleteRemoteFile({}, 'some-sha', fetchImpl).then(function () { throw new Error('expected rejection'); }, function (err) {

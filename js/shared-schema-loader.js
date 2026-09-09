@@ -20,7 +20,7 @@
         var parsed;
         try { parsed = JSON.parse(rawText); } catch (e) { return Promise.reject(new Error('The shared schema file does not contain valid JSON.')); }
         var tables = Array.isArray(parsed) ? parsed : parsed.tables;
-        if (!Array.isArray(tables)) return Promise.reject(new Error('The shared schema file does not look like a valid AP-SQL Assistant schema.'));
+        if (!Array.isArray(tables)) return Promise.reject(new Error('The shared schema file does not look like a valid AP-SQL Assistant schema.')); 
         return { found: true, schema: parsed, rawText: rawText };
       });
     }, function (err) { return Promise.reject(new Error('Could not reach the shared schema file (' + (err && err.message ? err.message : 'network error') + ').')); });

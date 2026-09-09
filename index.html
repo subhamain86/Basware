@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AP-SQL Assistant · Version 10.2</title>
-<meta name="description" content="Schema-aware, read-only and Change Request SQL generator, with data-type-aware Decode, an Error Rectifier, description-driven query building, and cross-device schema sync.">
+<title>AP-SQL Assistant · Version 10.3</title>
+<meta name="description" content="Schema-aware, read-only and Change Request SQL generator, with data-type-aware Decode, an Error Rectifier, description-driven query building, and cross-device schema sync (File System Access + GitHub).">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -118,7 +118,7 @@
       </span>
       <div>
         <h1 class="h3 builder-heading mb-0">Welcome — what does this tool do?</h1>
-        <div class="text-body-secondary small">AP-SQL Assistant · Version 10.2</div>
+        <div class="text-body-secondary small">AP-SQL Assistant · Version 10.3</div>
       </div>
     </div>
     <p class="text-body-secondary">
@@ -127,9 +127,10 @@
       organization's approved database schema as its single source of truth, and helps you
       <strong>correct a SQL query</strong> when a database gives you back an error. You can build a query
       either by describing what you need in plain language, by making selections manually, or both together.
-      Schema updates can also now be synced across browsers, devices, and users by linking a shared file.
-      It never connects to a real database and never executes anything; it only ever produces SQL text for
-      you to review and copy.
+      Schema updates can also now be synced across browsers, devices, and users — either by linking a shared
+      file (Chrome/Edge), or via GitHub itself, which works in every browser and is ideal when this app is
+      hosted on GitHub Pages. It never connects to a real database and never executes anything; it only ever
+      produces SQL text for you to review and copy.
     </p>
     <h2 class="h6 mt-4"><span class="icon-badge icon-badge-sm badge-purple"><i class="bi bi-diagram-3-fill"></i></span> Areas covered by the active schema</h2>
     <div class="d-flex flex-wrap gap-2 mb-3" id="qsModuleChips"></div>
@@ -140,7 +141,7 @@
         <div class="card h-100">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-blue me-2"><i class="bi bi-eye-fill"></i></span>Read Only Query Builder</h3>
-            <p class="small text-body-secondary mb-2">Describe what you need in plain language and click Build Query right there, make selections manually, or combine both — with joins across any number of tables, aggregation, hierarchy walks, and data-type-aware decode.</p>
+            <p class="small text-body-secondary mb-2">Describe what you need in plain language and click Build Query right there, make selections manually, or combine both.</p>
             <button class="btn btn-outline-primary btn-sm" data-view="builder" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Read Only Query Builder</button>
           </div>
         </div>
@@ -149,7 +150,7 @@
         <div class="card h-100 border-warning-subtle">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-orange me-2"><i class="bi bi-pencil-square"></i></span>Query Builder for CR <span class="badge text-bg-warning-subtle text-warning-emphasis">CR</span></h3>
-            <p class="small text-body-secondary mb-2">Describe the change in plain language and click Build Query, or use the manual controls — with the same schema, filters and decode engine.</p>
+            <p class="small text-body-secondary mb-2">Describe the change in plain language and click Build Query, or use the manual controls.</p>
             <button class="btn btn-outline-warning btn-sm" data-view="crbuilder" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Query Builder for CR</button>
           </div>
         </div>
@@ -160,7 +161,7 @@
         <div class="card h-100 border-info-subtle">
           <div class="card-body">
             <h3 class="h6"><span class="icon-badge badge-cyan me-2"><i class="bi bi-magic"></i></span>Error Rectifier <span class="badge text-bg-info-subtle text-info-emphasis">New in V10</span></h3>
-            <p class="small text-body-secondary mb-2">Paste a database error and the SQL that caused it — the Error Rectifier analyzes both against the active schema and proposes a corrected query with a plain-language explanation.</p>
+            <p class="small text-body-secondary mb-2">Paste a database error and the SQL that caused it, and get a corrected query with a plain-language explanation.</p>
             <button class="btn btn-outline-info btn-sm" data-view="errorrectifier" type="button"><i class="bi bi-arrow-right-circle me-1"></i>Open Error Rectifier</button>
           </div>
         </div>
@@ -504,16 +505,42 @@
       </div>
     </div>
     <div class="d-none" id="updateSchemaWorkArea">
+
       <div class="card mb-3" id="schemaSyncCard" data-tour="sync-card">
         <div class="card-body">
-          <h2 class="h6"><span class="icon-badge icon-badge-sm badge-cyan"><i class="bi bi-arrow-repeat"></i></span> Cross-Device Schema Sync <span class="badge text-bg-info-subtle text-info-emphasis">New in V10.2</span></h2>
-          <p class="small text-body-secondary">Link the active schema to a single shared file — placed in a SharePoint document library, a synced OneDrive folder, or a shared network drive — so that Apply / Delete / Save Relationship actions update that file too. This requires a Chromium-based browser (Chrome, Edge, or similar).</p>
+          <h2 class="h6"><span class="icon-badge icon-badge-sm badge-cyan"><i class="bi bi-arrow-repeat"></i></span> Cross-Device Schema Sync <span class="badge text-bg-secondary">Option A</span></h2>
+          <p class="small text-body-secondary">Link the active schema to a single shared file — placed in a SharePoint document library, a synced OneDrive folder, or a shared network drive. This requires a Chromium-based browser (Chrome, Edge, or similar).</p>
           <div id="schemaSyncStatusBody"></div>
           <div class="schema-sync-actions" id="schemaSyncActionsBody"></div>
           <div class="schema-sync-lastcheck" id="schemaSyncLastCheck"></div>
-          <p class="schema-sync-note">Everyone who needs the same schema should link to the exact same file. AP-SQL Assistant only reads and writes that one file through your browser's own permission system.</p>
+          <p class="schema-sync-note">AP-SQL Assistant only reads and writes that one file through your browser's own permission system.</p>
         </div>
       </div>
+
+      <!-- ==================== V10.3: GitHub-Hosted Schema Sync ==================== -->
+      <div class="card mb-3" id="githubSyncCard" data-tour="github-sync-card">
+        <div class="card-body">
+          <h2 class="h6"><span class="icon-badge icon-badge-sm badge-dark"><i class="bi bi-github"></i></span> GitHub-Hosted Schema Sync <span class="badge text-bg-success-subtle text-success-emphasis">Option B — New in V10.3</span></h2>
+          <p class="small text-body-secondary">Sync the active schema through a JSON file stored in a GitHub repository, using GitHub's own REST API. Unlike Option A, this works in <strong>every</strong> browser (Chrome, Edge, Firefox, Safari) — a natural fit since this application itself can be hosted on GitHub Pages.</p>
+          <div id="githubSyncStatusBody"></div>
+          <div class="d-none" id="githubTokenWarningBox">
+            <div class="github-token-warning"><i class="bi bi-exclamation-triangle-fill me-1"></i>Your Personal Access Token is stored only in this browser's local storage and sent only to <code>api.github.com</code> over HTTPS — it is never sent anywhere else. Use a <strong>fine-grained token</strong> scoped only to this one repository with <strong>Contents: Read and write</strong> permission, so that even if this browser/profile were compromised, the exposure is limited to that single repo.</div>
+          </div>
+          <div class="d-none" id="githubSyncConfigForm">
+            <div class="github-sync-form">
+              <div><label for="githubOwnerInput">Repository Owner</label><input class="form-control form-control-sm" id="githubOwnerInput" placeholder="e.g. acme-corp"></div>
+              <div><label for="githubRepoInput">Repository Name</label><input class="form-control form-control-sm" id="githubRepoInput" placeholder="e.g. ap-sql-schema-store"></div>
+              <div><label for="githubBranchInput">Branch</label><input class="form-control form-control-sm" id="githubBranchInput" placeholder="main" value="main"></div>
+              <div class="full-width"><label for="githubPathInput">File Path</label><input class="form-control form-control-sm" id="githubPathInput" placeholder="ap-sql-assistant-schema.json" value="ap-sql-assistant-schema.json"></div>
+              <div class="full-width"><label for="githubTokenInput">Personal Access Token</label><input class="form-control form-control-sm" type="password" id="githubTokenInput" placeholder="ghp_... or github_pat_..."></div>
+            </div>
+          </div>
+          <div class="github-sync-actions" id="githubSyncActionsBody"></div>
+          <div class="github-sync-lastcheck" id="githubSyncLastCheck"></div>
+          <p class="github-sync-note">Everyone who needs the same schema should point at the exact same owner/repo/path/branch. Create the token at <code>github.com/settings/tokens</code> (fine-grained, recommended) or <code>github.com/settings/tokens/new</code> (classic, "repo" scope).</p>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-body">
           <h2 class="h6"><span class="icon-badge icon-badge-sm badge-green"><i class="bi bi-download"></i></span> Download Current Schema</h2>
@@ -636,7 +663,7 @@ FROM ADM_USER_DATA;"></textarea>
 </div>
 
 <footer class="text-center py-4 text-body-secondary small">
-  <div>AP-SQL Assistant · Version 10.2</div>
+  <div>AP-SQL Assistant · Version 10.3</div>
   <div class="creator-signature-wrap d-flex flex-column align-items-center mt-1">
     <div><span class="creator-signature-label">Crafted by</span> <span class="creator-signature">Subham Ain</span></div>
     <svg class="creator-signature-flourish" width="92" height="10" viewBox="0 0 86 10" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -733,6 +760,7 @@ FROM ADM_USER_DATA;"></textarea>
 <script src="js/error-rectifier-engine.js"></script>
 <script src="js/nl-query-engine.js"></script>
 <script src="js/schema-sync-engine.js"></script>
+<script src="js/github-sync-engine.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

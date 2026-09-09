@@ -2,7 +2,6 @@
 var path = require('path');
 var DT = require(path.join(__dirname, '..', 'js', 'datatype-engine.js'));
 
-/* ---- classify() across all documented type keywords ---- */
 test('classify: numeric types', function () {
   ['NUMBER', 'NUMBER(5)', 'NUMBER(19,2)', 'INTEGER', 'INT', 'DECIMAL', 'DECIMAL(10,2)', 'FLOAT', 'DOUBLE', 'BIGINT', 'SMALLINT'].forEach(function (t) { assertEqual(DT.classify(t), 'numeric', t); });
 });
@@ -16,7 +15,6 @@ test('classify: unknown/unrecognized type is "unknown", not invented', function 
 test('classify: empty/missing type is "unknown"', function () { assertEqual(DT.classify(''), 'unknown'); assertEqual(DT.classify(null), 'unknown'); assertEqual(DT.classify(undefined), 'unknown'); });
 test('classify is case-insensitive and tolerant of parameters', function () { assertEqual(DT.classify('varchar2(50)'), 'text'); assertEqual(DT.classify('number(5)'), 'numeric'); });
 
-/* ---- getCompatibleElseExpression() dialect-by-dialect ---- */
 test('numeric column: Oracle uses TO_CHAR', function () { assertEqual(DT.getCompatibleElseExpression('LOGIN_TYPE', 'NUMBER(5)', 'Oracle'), 'TO_CHAR(LOGIN_TYPE)'); });
 test('numeric column: SQL Server uses CONVERT(VARCHAR...)', function () { assertEqual(DT.getCompatibleElseExpression('LOGIN_TYPE', 'NUMBER(5)', 'SQL Server'), 'CONVERT(VARCHAR(4000), LOGIN_TYPE)'); });
 test('numeric column: PostgreSQL uses ::text', function () { assertEqual(DT.getCompatibleElseExpression('LOGIN_TYPE', 'NUMBER(5)', 'PostgreSQL'), 'LOGIN_TYPE::text'); });
@@ -37,7 +35,6 @@ test('boolean column produces a dialect-appropriate conversion', function () {
   assertEqual(DT.getCompatibleElseExpression('IS_ACTIVE', 'BOOLEAN', 'PostgreSQL'), 'IS_ACTIVE::text');
 });
 
-/* ---- The critical "do not invent" guarantees ---- */
 test('text column: expression returned completely unchanged (no wrapping at all)', function () { assertEqual(DT.getCompatibleElseExpression('SUPPLIER_NAME', 'VARCHAR2(250)', 'Oracle'), 'SUPPLIER_NAME'); });
 test('unavailable data type: expression returned completely unchanged, regardless of dialect', function () {
   assertEqual(DT.getCompatibleElseExpression('X', null, 'Oracle'), 'X');
@@ -46,7 +43,6 @@ test('unavailable data type: expression returned completely unchanged, regardles
 });
 test('unrecognized-but-present data type: expression returned unchanged (does not invent a conversion)', function () { assertEqual(DT.getCompatibleElseExpression('X', 'MY_CUSTOM_TYPE', 'Oracle'), 'X'); });
 
-/* ---- needsConversion() helper ---- */
 test('needsConversion is true for numeric/date/timestamp/boolean, false for text/unknown/missing', function () {
   assertTrue(DT.needsConversion('NUMBER'));
   assertTrue(DT.needsConversion('DATE'));
@@ -55,7 +51,6 @@ test('needsConversion is true for numeric/date/timestamp/boolean, false for text
   assertFalse(DT.needsConversion(null));
 });
 
-/* ---- wrapDateLiteral() per dialect (used by the Error Rectifier's date-format rule) ---- */
 test('wrapDateLiteral produces dialect-correct date parsing syntax', function () {
   assertEqual(DT.wrapDateLiteral("'2024-01-01'", 'Oracle'), "TO_DATE('2024-01-01', 'YYYY-MM-DD')");
   assertEqual(DT.wrapDateLiteral("'2024-01-01'", 'SQL Server'), "CONVERT(DATE, '2024-01-01', 120)");

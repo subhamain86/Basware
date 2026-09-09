@@ -7,7 +7,6 @@ var NLQ = require(path.join(__dirname, '..', 'js', 'nl-query-engine.js'));
 var engine = SCHEMA_ENGINE.createEngine(schema);
 var FIXED_NOW = new Date('2026-09-08T00:00:00Z');
 
-/* ---- interpretDescription: table/column matching ---- */
 test('matches a table by its bare (module-stripped) name', function () {
   var r = NLQ.interpretDescription('show all invoices', engine, {});
   assertTrue(r.tables.indexOf('IA_INVOICE') !== -1);
@@ -28,7 +27,7 @@ test('exact reproduction of the app\u2019s own placeholder example sentence', fu
   assertEqual(r.filterConditions.length, 1);
   assertEqual(r.filterConditions[0].column, 'DUE_DATE');
   assertEqual(r.filterConditions[0].operator, 'gte');
-  assertEqual(r.filterConditions[0].value, '2026-08-09'); // 30 days before the fixed "now"
+  assertEqual(r.filterConditions[0].value, '2026-08-09');
 });
 test('returns a warning and no tables when nothing schema-related is mentioned', function () {
   var r = NLQ.interpretDescription('show me something interesting please', engine, {});
@@ -42,12 +41,10 @@ test('empty description text returns a fully empty interpretation with no warnin
 });
 test('a "dangling" table with no matched columns/filters/sort is dropped unless it is the single top-scoring table', function () {
   var r = NLQ.interpretDescription('overdue invoices for a supplier', engine, {});
-  // IA_SUPPLIER is mentioned but contributes no columns/filters of its own -> should not appear.
   assertTrue(r.tables.indexOf('IA_SUPPLIER') === -1);
   assertTrue(r.tables.indexOf('IA_INVOICE') !== -1);
 });
 
-/* ---- Filter operators ---- */
 test('greater than / less than operators', function () {
   var r = NLQ.interpretDescription('invoices with gross amount greater than 500', engine, {});
   var f = r.filterConditions.filter(function (c) { return c.column === 'GROSS_SUM'; })[0];
@@ -73,7 +70,7 @@ test('decode label matching resolves a plain-language status word to its schema 
   var f = r.filterConditions.filter(function (c) { return c.column === 'STATUS'; })[0];
   assertTrue(f !== undefined);
   assertEqual(f.operator, 'eq');
-  assertEqual(f.value, '40'); // IA_INVOICE.STATUS decode: 40 = Approved
+  assertEqual(f.value, '40');
 });
 test('decode-label matching does not override an already-matched explicit operator filter on the same column', function () {
   var r = NLQ.interpretDescription('show invoices where status is 10 and not approved', engine, {});
@@ -82,7 +79,6 @@ test('decode-label matching does not override an already-matched explicit operat
   assertEqual(statusFilters[0].value, '10');
 });
 
-/* ---- Sort / limit / distinct ---- */
 test('sort with explicit direction word', function () {
   var r = NLQ.interpretDescription('invoices sorted by due date descending', engine, {});
   assertEqual(r.orderBy.length, 1);
@@ -102,9 +98,7 @@ test('distinct via "unique"/"no duplicates"', function () {
   assertTrue(NLQ.interpretDescription('invoices, no duplicates', engine, {}).distinct);
 });
 
-/* ---- Hierarchy ---- */
 test('hierarchy intent uniquely resolved when the schema has only one self-referencing table', function () {
-  // Build a tiny schema fixture with exactly one self-referencing table to test the "only one candidate" fallback.
   var tinySchema = { schema_name: 'x', schema_version: '1.0', module_labels: { T: 'Test' }, tables: [
     { name: 'T_NODE', module: 'T', notes: '', columns: [
       { name: 'NODE_ID', type: 'INTEGER', primary_key: true, foreign_key: null, alias: '', description: '' },
@@ -132,7 +126,6 @@ test('no hierarchy keyword present -> hierarchyTable is always null', function (
   assertEqual(r.hierarchyTable, null);
 });
 
-/* ---- interpretCrDescription ---- */
 test('UPDATE with SET and WHERE clauses, correctly segmented', function () {
   var r = NLQ.interpretCrDescription('update the invoice status to 40 where invoice id is 123', engine, {});
   assertEqual(r.command, 'UPDATE');
@@ -180,7 +173,6 @@ test('empty CR description text returns a fully empty, non-throwing interpretati
   assertEqual(r.insertColumns.length, 0);
 });
 
-/* ---- Pure merge helpers ---- */
 test('mergeTableLists unions and de-duplicates, case-insensitively, manual-first', function () {
   assertEqual(NLQ.mergeTableLists(['IA_INVOICE'], ['IA_INVOICE', 'IA_SUPPLIER']), ['IA_INVOICE', 'IA_SUPPLIER']);
   assertEqual(NLQ.mergeTableLists([], ['IA_SUPPLIER']), ['IA_SUPPLIER']);
@@ -190,7 +182,6 @@ test('mergeColumnLists keeps all manual columns untouched', function () {
   var manual = [{ table: 'IA_INVOICE', column: 'STATUS' }];
   var nl = [{ table: 'IA_INVOICE', column: 'GROSS_SUM' }];
   var merged = NLQ.mergeColumnLists(manual, nl);
-  // IA_INVOICE already has a manual column selected -> NL columns for that SAME table are not added.
   assertEqual(merged.length, 1);
   assertEqual(merged[0].column, 'STATUS');
 });
@@ -202,18 +193,15 @@ test('mergeColumnLists adds NL columns only for tables with zero manual columns'
   assertTrue(merged.some(function (c) { return c.table === 'IA_SUPPLIER' && c.column === 'SUPPLIER_NAME'; }));
 });
 test('mergeColumnLists never adds an exact duplicate table+column pair', function () {
-  var manual = [{ table: 'IA_INVOICE', column: 'STATUS' }];
   var nl = [{ table: 'IA_INVOICE', column: 'STATUS' }];
-  // Even though IA_INVOICE already has a manual column (so the NL one would be blocked anyway),
-  // verify the dedupe key itself also works when manual is empty for that table.
   var merged = NLQ.mergeColumnLists([], nl);
   assertEqual(merged.length, 1);
 });
 test('mergeFilterConditions appends non-duplicate NL filters and skips exact duplicates', function () {
   var manual = [{ table: 'IA_INVOICE', column: 'STATUS', operator: 'eq', value: '40' }];
   var nl = [
-    { table: 'IA_INVOICE', column: 'STATUS', operator: 'eq', value: '40' }, // exact duplicate -> skipped
-    { table: 'IA_INVOICE', column: 'COMPANY_ID', operator: 'eq', value: '100' } // new -> appended
+    { table: 'IA_INVOICE', column: 'STATUS', operator: 'eq', value: '40' },
+    { table: 'IA_INVOICE', column: 'COMPANY_ID', operator: 'eq', value: '100' }
   ];
   var merged = NLQ.mergeFilterConditions(manual, nl);
   assertEqual(merged.length, 2);

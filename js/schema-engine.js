@@ -31,7 +31,7 @@
     function getStatus() {
       var moduleSet = {}; var columnCount = 0;
       schema.tables.forEach(function (t) { moduleSet[t.module] = true; columnCount += t.columns.length; });
-      return { schemaName: schema.schema_name || 'Database Schema', schemaVersion: schema.schema_version || '1.0', status: 'valid', moduleCount: Object.keys(moduleSet).length, tableCount: schema.tables.length, columnCount: columnCount, sourceDocuments: schema.source_documents || [], lastUpdated: schema.last_updated || '', lastValidated: schema.last_updated || '', appVersion: '10.2.0' };
+      return { schemaName: schema.schema_name || 'Database Schema', schemaVersion: schema.schema_version || '1.0', status: 'valid', moduleCount: Object.keys(moduleSet).length, tableCount: schema.tables.length, columnCount: columnCount, sourceDocuments: schema.source_documents || [], lastUpdated: schema.last_updated || '', lastValidated: schema.last_updated || '', appVersion: '10.3.0' };
     }
     return { getModuleLabels: getModuleLabels, getAllTables: getAllTables, getTable: getTable, getColumn: getColumn, tableExists: tableExists, columnExists: columnExists, getValueMap: getValueMap, getSelfReferencingEdges: getSelfReferencingEdges, findRelationship: findRelationship, getStatus: getStatus, _schema: schema };
   }

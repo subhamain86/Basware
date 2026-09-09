@@ -1,8 +1,8 @@
 {
   "name": "ap-sql-assistant",
   "private": true,
-  "version": "10.2.0",
-  "description": "AP-SQL Assistant — Version 10.2. Introduces Cross-Device Schema Sync: on the Update Schema page, an administrator can link the active schema to a single real file (SharePoint, OneDrive, or a network drive) using the browser's File System Access API (Chromium-based browsers only). Every existing feature from V10.1 and earlier (description-driven query building, data-type-aware Decode, the Error Rectifier, order-independent multi-table joins, Define Relationship, and localStorage persistence) continues to work exactly as before.",
+  "version": "10.3.0",
+  "description": "AP-SQL Assistant — Version 10.3. Adds a second Cross-Device Schema Sync backend, GitHub-Hosted Schema Sync: an administrator links the active schema to a single JSON file inside a GitHub repository, and every Apply Schema Update / Delete Current Schema / Save Relationship to Schema action reads/writes that file via GitHub's REST Contents API. Unlike V10.2's File System Access API sync (Chromium browsers only, requires a manually shared local file), GitHub Sync works in every modern browser (Chrome, Edge, Firefox, Safari) because it is nothing more than authenticated fetch() calls to api.github.com — a natural fit given this application itself can be hosted on GitHub Pages, where every user, browser, and device already reaches the same repository. Concurrency is handled via GitHub's own sha-based optimistic-concurrency mechanism, with automatic conflict detection and a single re-fetch-and-retry on write conflicts. A new github-sync-engine.js module implements this (base64 encode/decode built from scratch for UTF-8 safety, fully dependency-injected fetch and localStorage for unit testing). Every existing feature from V10.2 and earlier — description-driven query building, data-type-aware Decode, the Error Rectifier, order-independent multi-table joins, Define Relationship, File System Access sync, and per-browser localStorage persistence — continues to work exactly as before.",
   "scripts": {
     "test": "node test/run-all.js",
     "test:smoke": "node test/dom-smoke.js"

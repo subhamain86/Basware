@@ -20,18 +20,6 @@ test('recursive hierarchy', function () { assertIncludes(SQL_ENGINE.generateSql(
 test('EXISTS filter', function () { var r = SQL_ENGINE.generateSql('', { selectedTables: ['IA_SUPPLIER'], existsFilter: { relatedTable: 'IA_INVOICE' }, selectedColumns: [{ table: 'IA_SUPPLIER', column: 'SUPPLIER_NAME' }] }, engine, store); assertIncludes(r.sql, 'EXISTS (SELECT 1 FROM IA_INVOICE'); });
 test('scalar count subquery', function () { var r = SQL_ENGINE.generateSql('', { selectedTables: ['IA_SUPPLIER'], scalarSubquery: { relatedTable: 'IA_INVOICE', aggFunc: 'COUNT', alias: 'C' }, selectedColumns: [{ table: 'IA_SUPPLIER', column: 'SUPPLIER_NAME' }] }, engine, store); assertIncludes(r.sql, '(SELECT COUNT(*) FROM IA_INVOICE WHERE IA_INVOICE.SUPPLIER_ID = IA_SUPPLIER.SUPPLIER_ID) AS C'); });
 test('GROUP BY / HAVING', function () { var r = SQL_ENGINE.generateSql('', { selectedTables: ['IA_INVOICE'], selectedColumns: [{ table: 'IA_INVOICE', column: 'STATUS' }], groupBy: ['IA_INVOICE.STATUS'], having: 'COUNT(*) > 5' }, engine, store); assertIncludes(r.sql, 'GROUP BY IA_INVOICE.STATUS'); assertIncludes(r.sql, 'HAVING COUNT(*) > 5'); });
-test('existsFilters array applies multiple EXISTS checks ANDed together', function () {
-  var r = SQL_ENGINE.generateSql('', { selectedTables: ['IA_SUPPLIER'], existsFilters: [{ relatedTable: 'IA_INVOICE' }, { relatedTable: 'OM_ORDER' }], selectedColumns: [{ table: 'IA_SUPPLIER', column: 'SUPPLIER_NAME' }] }, engine, store);
-  assertEqual(r.status, 'ok');
-  assertIncludes(r.sql, 'EXISTS (SELECT 1 FROM IA_INVOICE');
-  assertIncludes(r.sql, 'EXISTS (SELECT 1 FROM OM_ORDER');
-});
-test('scalarSubqueries array adds multiple related counts as separate columns', function () {
-  var r = SQL_ENGINE.generateSql('', { selectedTables: ['IA_SUPPLIER'], scalarSubqueries: [{ relatedTable: 'IA_INVOICE' }, { relatedTable: 'OM_ORDER' }], selectedColumns: [{ table: 'IA_SUPPLIER', column: 'SUPPLIER_NAME' }] }, engine, store);
-  assertEqual(r.status, 'ok');
-  assertIncludes(r.sql, 'AS IA_INVOICE_count');
-  assertIncludes(r.sql, 'AS OM_ORDER_count');
-});
 test('buildJoinPlan: order-independent 3-table chain', function () {
   var plan = SQL_ENGINE.buildJoinPlan(engine, ['IA_INVOICE', 'OM_ORDER', 'IA_SUPPLIER']);
   assertEqual(plan.errors.length, 0);

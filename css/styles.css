@@ -41,6 +41,7 @@ a.nav-link:hover .icon-badge, button:hover > .icon-badge, .qs-example-card:hover
 .icon-badge.badge-red    { background: linear-gradient(150deg, var(--grad-red-a), var(--grad-red-b)); }
 .icon-badge.badge-gray   { background: linear-gradient(150deg, var(--grad-gray-a), var(--grad-gray-b)); }
 .icon-badge.badge-cyan   { background: linear-gradient(150deg, #7fe3ff, #12a9d6); }
+.icon-badge.badge-dark   { background: linear-gradient(150deg, #4a4f57, #1b1f24); }
 h2.h6 > .icon-badge, h3.h6 > .icon-badge { margin-right: .5rem; vertical-align: -8px; }
 .offcanvas .nav-link { color: var(--bs-body-color); padding: .55rem .7rem; border-radius: 10px; font-size: .95rem; }
 .offcanvas .nav-link:hover { background: var(--bs-tertiary-bg); }
@@ -182,6 +183,27 @@ pre.sql-output { background: #10131c; color: #e6ecff; border-radius: 10px; paddi
 .schema-sync-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .schema-sync-note { font-size: .78rem; color: var(--bs-secondary-color); margin-top: .5rem; }
 .schema-sync-lastcheck { font-size: .74rem; color: var(--bs-secondary-color); margin-top: .3rem; }
+
+/* ---------------- V10.3: GitHub-Hosted Schema Sync ---------------- */
+.github-sync-status-line { display: flex; align-items: flex-start; gap: .5rem; padding: .6rem .8rem; border-radius: 8px; font-size: .85rem; margin-bottom: .6rem; }
+.github-sync-status-line.level-unconfigured { background: var(--bs-tertiary-bg); }
+.github-sync-status-line.level-connected { background: rgba(34,163,90,.10); color: #146c3a; }
+[data-bs-theme="dark"] .github-sync-status-line.level-connected { color: #8ee6a8; }
+.github-sync-status-line.level-conflict { background: rgba(244,132,42,.10); color: #a8590f; }
+[data-bs-theme="dark"] .github-sync-status-line.level-conflict { color: #ffb26b; }
+.github-sync-status-line.level-error { background: rgba(230,69,69,.10); color: #a32a2a; }
+[data-bs-theme="dark"] .github-sync-status-line.level-error { color: #ff9d9d; }
+.github-sync-status-line i.bi { margin-top: .1rem; flex: 0 0 auto; }
+.github-sync-pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--grad-green-b); margin-right: .4rem; box-shadow: 0 0 0 rgba(34,163,90,.5); animation: syncPulse 2s infinite; flex: 0 0 auto; }
+.github-sync-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; margin-bottom: .6rem; }
+.github-sync-form label { font-size: .78rem; font-weight: 600; color: var(--bs-secondary-color); margin-bottom: .2rem; display: block; }
+.github-sync-form .full-width { grid-column: 1 / -1; }
+.github-sync-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .4rem; }
+.github-sync-note { font-size: .78rem; color: var(--bs-secondary-color); margin-top: .5rem; }
+.github-sync-lastcheck { font-size: .74rem; color: var(--bs-secondary-color); margin-top: .3rem; }
+.github-token-warning { font-size: .76rem; background: rgba(244,132,42,.08); border: 1px dashed var(--grad-orange-b); border-radius: 8px; padding: .5rem .7rem; margin-bottom: .6rem; }
+[data-bs-theme="dark"] .github-token-warning { background: rgba(244,132,42,.14); }
+
 .optimize-report-box .alert ul { padding-left: 1.2rem; margin-bottom: 0; }
 .optimize-report-box .alert > div + div { margin-top: .5rem; }
 .suggested-fixes-box ul { padding-left: 1.2rem; margin-bottom: 0; }

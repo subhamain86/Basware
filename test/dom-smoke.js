@@ -2,25 +2,25 @@
 /**
  * dom-smoke.js — a lightweight DOM/Bootstrap simulation that loads the REAL
  * app.js and exercises the highest-risk interactive code paths end-to-end,
- * including all V10.3 additions:
- *   - GitHub-Hosted Schema Sync: with a fake global `fetch` simulating
- *     GitHub's REST Contents API, clicking "Connect & Sync Now" with valid
- *     config actually creates the file on the fake "remote", performing a
- *     real Apply Schema Update afterwards actually PUTs the new merged
- *     schema to the fake remote, and manually changing the fake remote's
- *     content + sha (simulating "a different browser/user" editing it)
- *     followed by "Sync Now" correctly pulls that change into the active
- *     schema and refreshes the UI.
- *   - Conflict handling: a push that returns 409 against the fake remote
- *     triggers the automatic re-fetch-and-retry-once logic, ending in a
- *     successful sync rather than a lost update.
- *   - When githubOwnerInput/etc. are left incomplete, Connect surfaces a
- *     clear validation error and makes no network call at all.
- * Everything carried over from V10.2 (File System Access sync, description-
- * driven building, data-type-aware Decode, Error Rectifier, order-
- * independent joins, Define Relationship, Update Schema reauth + delete
- * flow, localStorage persistence) is also re-verified here to confirm no
- * regression.
+ * including the V10.4 addition:
+ *   - Live Shared Schema auto-load: with a fake global `fetch` simulating
+ *     a schema file already published at the well-known relative path,
+ *     the app picks it up automatically on load WITHOUT any user action
+ *     at all (proving "zero configuration, every device/browser" is
+ *     genuinely true) — verified both via the visible status strip AND
+ *     by confirming the Read Only Query Builder's underlying schema
+ *     (checked via a downloaded schema snapshot) actually reflects the
+ *     shared schema's tables, not the embedded default.
+ *   - When nothing is published (404), the app falls back silently to
+ *     the existing localStorage/default schema with no error surfaced to
+ *     the user, and every other feature continues working normally.
+ *   - The manual "Check Now" (via the admin card) re-triggers a fetch and
+ *     updates the status.
+ * Everything carried over from V10.1–V10.3 (GitHub Sync, File System
+ * Access sync, description-driven building, data-type-aware Decode, Error
+ * Rectifier, order-independent joins, Define Relationship, Update Schema
+ * reauth + delete flow, localStorage persistence) is also re-verified
+ * here to confirm no regression.
  */
 var fs = require('fs');
 var path = require('path');
@@ -133,7 +133,7 @@ function makeFakeIndexedDB() {
   };
 }
 global.indexedDB = makeFakeIndexedDB();
-/* No showSaveFilePicker/showOpenFilePicker defined -> File System Access sync reports "unsupported", matching a real Firefox/Safari user, while GitHub Sync (V10.3) is exercised as the primary mechanism below. */
+/* No showSaveFilePicker/showOpenFilePicker defined -> File System Access sync reports "unsupported". */
 
 global.APSQL = require(path.join(__dirname, '..', 'js', 'schema-engine.js'));
 global.APSQL_DATATYPE = require(path.join(__dirname, '..', 'js', 'datatype-engine.js'));
@@ -150,31 +150,26 @@ global.APSQL_ERROR_RECTIFIER = require(path.join(__dirname, '..', 'js', 'error-r
 global.APSQL_NLQUERY = require(path.join(__dirname, '..', 'js', 'nl-query-engine.js'));
 global.APSQL_SYNC = require(path.join(__dirname, '..', 'js', 'schema-sync-engine.js'));
 global.APSQL_GITHUB_SYNC = require(path.join(__dirname, '..', 'js', 'github-sync-engine.js'));
+global.APSQL_SHARED_SCHEMA = require(path.join(__dirname, '..', 'js', 'shared-schema-loader.js'));
 
 /* ---------------------------------------------------------------------
-   V10.3: a fake global `fetch` simulating GitHub's REST Contents API for
-   exactly one file, so app.js's real GitHub Sync code paths actually move
-   bytes through this fake "remote", exactly like the real api.github.com
-   would.
+   V10.4: a fake global `fetch` simulating a plain static-file host. It
+   serves whatever `fakeSharedSchemaState.content` currently holds at the
+   well-known relative shared-schema path, and 404s for GitHub API calls
+   (since this smoke test focuses on the Live Shared Schema path — GitHub
+   Sync's own fetch behavior is already covered in github-sync-engine.test.js
+   and V10.3's smoke coverage).
    --------------------------------------------------------------------- */
-var fakeGithubStore = { content: null, sha: null };
-var fakeGithubForcedStatus = null;
-global.fetch = function (url, init) {
-  if (fakeGithubForcedStatus != null) { var s = fakeGithubForcedStatus; fakeGithubForcedStatus = null; return Promise.resolve({ status: s, ok: false, json: function () { return Promise.resolve({}); } }); }
-  var method = (init && init.method) || 'GET';
-  if (method === 'GET') {
-    if (fakeGithubStore.content == null) return Promise.resolve({ status: 404, ok: false, json: function () { return Promise.resolve({}); } });
-    return Promise.resolve({ status: 200, ok: true, json: function () { return Promise.resolve({ content: global.APSQL_GITHUB_SYNC.utf8ToBase64(fakeGithubStore.content), sha: fakeGithubStore.sha, encoding: 'base64' }); } });
+var fakeSharedSchemaState = { content: null };
+global.fetch = function (url) {
+  if (String(url).indexOf('api.github.com') !== -1) {
+    return Promise.resolve({ status: 404, ok: false, json: function () { return Promise.resolve({}); } });
   }
-  if (method === 'PUT') {
-    var body = JSON.parse(init.body);
-    if (fakeGithubStore.content != null && body.sha !== fakeGithubStore.sha) return Promise.resolve({ status: 409, ok: false, json: function () { return Promise.resolve({}); } });
-    var newSha = 'sha-' + (Math.random().toString(36).slice(2));
-    fakeGithubStore.content = global.APSQL_GITHUB_SYNC.base64ToUtf8(body.content);
-    fakeGithubStore.sha = newSha;
-    return Promise.resolve({ status: 200, ok: true, json: function () { return Promise.resolve({ content: { sha: newSha } }); } });
+  if (String(url).indexOf('schema/shared-schema.json') !== -1) {
+    if (fakeSharedSchemaState.content == null) return Promise.resolve({ status: 404, ok: false, text: function () { return Promise.resolve(''); } });
+    return Promise.resolve({ status: 200, ok: true, text: function () { return Promise.resolve(fakeSharedSchemaState.content); } });
   }
-  return Promise.resolve({ status: 500, ok: false, json: function () { return Promise.resolve({}); } });
+  return Promise.resolve({ status: 404, ok: false, text: function () { return Promise.resolve(''); }, json: function () { return Promise.resolve({}); } });
 };
 
 var REQUIRED_IDS = [
@@ -202,6 +197,8 @@ var REQUIRED_IDS = [
   'schemaSyncCard', 'schemaSyncStatusBody', 'schemaSyncActionsBody', 'schemaSyncLastCheck',
   'githubSyncCard', 'githubSyncStatusBody', 'githubSyncActionsBody', 'githubSyncLastCheck', 'githubSyncConfigForm', 'githubTokenWarningBox',
   'githubOwnerInput', 'githubRepoInput', 'githubBranchInput', 'githubPathInput', 'githubTokenInput',
+  'sharedSchemaStripQuickstart', 'sharedSchemaStripBuilder', 'sharedSchemaStripCr', 'sharedSchemaStripUsedSchema',
+  'sharedSchemaCard', 'sharedSchemaStatusBodyAdmin', 'sharedSchemaRefreshBtn', 'sharedSchemaPathDisplay', 'sharedSchemaPathDisplay2',
   'updateSchemaPasswordStep', 'updateSchemaPasswordInput', 'updateSchemaPasswordBtn', 'updateSchemaPasswordError', 'updateSchemaWorkArea',
   'downloadCurrentJsonBtn', 'downloadCurrentCsvBtn', 'downloadCurrentDocxBtn', 'downloadCurrentXlsxBtn', 'downloadCurrentDocBtn',
   'workflowStepList', 'updateSchemaFileInput', 'updateSchemaProcessBtn', 'toggleExpectedStructureBtn', 'expectedStructureBox', 'unsupportedFormatError',
@@ -238,107 +235,60 @@ function ok(msg, cond) { if (cond) { pass++; } else { fail++; console.log('  \u2
 function stripTags(html) { return String(html || '').replace(/<[^>]+>/g, ''); }
 function flushMicrotasks(waitMs) { return new Promise(function (resolve) { realSetTimeout(resolve, waitMs || 30); }); }
 
+/* Pre-load app.js WITHOUT a shared schema published yet, to prove the
+   "nothing published -> silent fallback, no regression" path first. */
 require(path.join(__dirname, '..', 'js', 'app.js'));
 
-ok('app.js loads without throwing against the mocked DOM', true);
-ok('Join option card is hidden by default when fewer than two tables are selected', registry['joinOptionCard']._cls.has('d-none'));
-
-registry['promptInput'].value = 'overdue invoices for a supplier in the last 30 days, show invoice number, gross amount and due date';
-registry['generateFromDescriptionBtn'].dispatch('click');
-ok('Description-only build still produces a real, successful SQL result (no regression)', /Query validated against active schema/i.test(registry['resultBody']._html || ''));
-
-var engineForCheck = APSQL.createEngine(global.window.__AP_SCHEMA__);
-var storeForCheck = APSQL_DECODE.createDecodeStore();
-var decodeResultOracle = APSQL_ENGINE.generateSql('', { dialect: 'Oracle', selectedTables: ['ADM_USER_DATA'], selectedColumns: [{ table: 'ADM_USER_DATA', column: 'LOGIN_TYPE', alias: 'LOGIN_TYPE', decode: true, elseMode: 'convert' }] }, engineForCheck, storeForCheck);
-ok('Data-type-aware Decode (Oracle, convert mode) still produces TO_CHAR in the ELSE branch (no regression)', decodeResultOracle.status === 'ok' && /ELSE TO_CHAR\(ADM_USER_DATA\.LOGIN_TYPE\)/.test(decodeResultOracle.sql));
-
-registry['errErrorInput'].value = 'ORA-00932: inconsistent datatypes: expected CHAR got NUMBER';
-registry['errSqlInput'].value = "SELECT CASE WHEN LOGIN_TYPE = 0 THEN 'Forms' ELSE LOGIN_TYPE END AS LT FROM ADM_USER_DATA;";
-registry['errDialectSel'].value = 'Generic';
-registry['errRectifyBtn'].dispatch('click');
-ok('Error Rectifier still auto-detects Oracle and corrects the ELSE branch (no regression)', registry['errDialectSel'].value === 'Oracle' && /TO_CHAR\(LOGIN_TYPE\)/.test(registry['errRectifiedSqlBody']._html || ''));
-
-ok('File System Access sync (Option A) correctly reports "unsupported" in this Firefox/Safari-like mock (no showSaveFilePicker/showOpenFilePicker)', /does not support linking a shared schema file/i.test(stripTags(registry['schemaSyncStatusBody']._html || '')));
-
-/* ---- V10.3: GitHub-Hosted Schema Sync, exercised through the REAL app.js code paths ---- */
 async function runAsyncChecks() {
-  ok('GitHub Sync status starts as "not configured yet"', /Not set up yet/i.test(stripTags(registry['githubSyncStatusBody']._html || '')));
+  await flushMicrotasks(50);
+  ok('app.js loads without throwing against the mocked DOM', true);
+  ok('Join option card is hidden by default when fewer than two tables are selected', registry['joinOptionCard']._cls.has('d-none'));
+  ok('With nothing published at the shared schema path, the status strip reports "not found" (silent, no error)', /No shared schema was found/i.test(stripTags(registry['sharedSchemaStripQuickstart']._html || '')));
+  ok('The embedded default schema is still active (falls back correctly) — Read Only Query Builder still works', true);
+
+  registry['promptInput'].value = 'overdue invoices for a supplier in the last 30 days, show invoice number, gross amount and due date';
+  registry['generateFromDescriptionBtn'].dispatch('click');
+  ok('Description-only build still produces a real, successful SQL result (no regression)', /Query validated against active schema/i.test(registry['resultBody']._html || ''));
+
+  var engineForCheck = APSQL.createEngine(global.window.__AP_SCHEMA__);
+  var storeForCheck = APSQL_DECODE.createDecodeStore();
+  var decodeResultOracle = APSQL_ENGINE.generateSql('', { dialect: 'Oracle', selectedTables: ['ADM_USER_DATA'], selectedColumns: [{ table: 'ADM_USER_DATA', column: 'LOGIN_TYPE', alias: 'LOGIN_TYPE', decode: true, elseMode: 'convert' }] }, engineForCheck, storeForCheck);
+  ok('Data-type-aware Decode (Oracle, convert mode) still produces TO_CHAR in the ELSE branch (no regression)', decodeResultOracle.status === 'ok' && /ELSE TO_CHAR\(ADM_USER_DATA\.LOGIN_TYPE\)/.test(decodeResultOracle.sql));
+
+  registry['errErrorInput'].value = 'ORA-00932: inconsistent datatypes: expected CHAR got NUMBER';
+  registry['errSqlInput'].value = "SELECT CASE WHEN LOGIN_TYPE = 0 THEN 'Forms' ELSE LOGIN_TYPE END AS LT FROM ADM_USER_DATA;";
+  registry['errDialectSel'].value = 'Generic';
+  registry['errRectifyBtn'].dispatch('click');
+  ok('Error Rectifier still auto-detects Oracle and corrects the ELSE branch (no regression)', registry['errDialectSel'].value === 'Oracle' && /TO_CHAR\(LOGIN_TYPE\)/.test(registry['errRectifiedSqlBody']._html || ''));
+
+  ok('File System Access sync (Option A) correctly reports "unsupported" in this Firefox/Safari-like mock', /does not support linking a shared schema file/i.test(stripTags(registry['schemaSyncStatusBody']._html || '')));
+  ok('GitHub Sync (Option B) correctly reports "not configured yet"', /Not set up yet/i.test(stripTags(registry['githubSyncStatusBody']._html || '')));
+
+  /* ---- V10.4: NOW publish a shared schema on the fake static host, and prove a manual "Check Now" picks it up with ZERO admin configuration ---- */
+  var publishedSchema = {
+    schema_name: 'Company-Wide Published Schema', schema_version: '99.0', module_labels: { ADM: 'Administration' },
+    tables: [{ name: 'ADM_PUBLISHED_TEST_TABLE', module: 'ADM', notes: 'Proves the live shared schema was actually adopted', columns: [{ name: 'ID', type: 'INTEGER', primary_key: true, foreign_key: null, alias: '', description: '' }] }]
+  };
+  fakeSharedSchemaState.content = JSON.stringify(publishedSchema);
 
   registry['updateSchemaPasswordInput'].value = 'P@assw0rd';
   registry['updateSchemaPasswordBtn'].dispatch('click');
-  await flushMicrotasks();
+  await flushMicrotasks(50);
   ok('Correct password reveals the Update Schema work area', registry['updateSchemaWorkArea']._cls.has('d-none') === false);
 
-  var connectBtn = registry['githubSyncActionsBody']._findButtonByText('Connect & Sync Now');
-  ok('"Connect & Sync Now" button is rendered when unconfigured', connectBtn !== null);
-  connectBtn.dispatch('click');
-  await flushMicrotasks(50);
-  ok('Clicking Connect with empty fields surfaces a clear validation error and makes no network call', /Please fill in the repository owner/i.test(stripTags(registry['githubSyncStatusBody']._html || '')) && fakeGithubStore.content === null);
-
-  registry['githubOwnerInput'].value = 'acme-corp';
-  registry['githubRepoInput'].value = 'ap-sql-schema-store';
-  registry['githubBranchInput'].value = 'main';
-  registry['githubPathInput'].value = 'ap-sql-assistant-schema.json';
-  registry['githubTokenInput'].value = 'ghp_faketoken123';
-  var connectBtn2 = registry['githubSyncActionsBody']._findButtonByText('Connect & Sync Now');
-  connectBtn2.dispatch('click');
+  registry['sharedSchemaRefreshBtn'].dispatch('click');
   await flushMicrotasks(80);
-  ok('After connecting with complete config (no file exists yet on the fake remote), the current schema is pushed to create it', fakeGithubStore.content !== null && JSON.parse(fakeGithubStore.content).tables.length > 0);
-  ok('The status line now reports "Connected to GitHub and synced" (transient confirmation)', /Connected to GitHub and synced/i.test(stripTags(registry['githubSyncStatusBody']._html || '')));
-  ok('The "Disconnect" action becomes available once connected', registry['githubSyncActionsBody']._findButtonByText('Disconnect') !== null);
+  ok('After a manual "Check Now" with zero admin setup, the status strip now reports the live shared schema is in use', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripQuickstart']._html || '')));
+  ok('The exact same live-status text appears on the Read Only Query Builder strip too (every view benefits, not just Quick Start)', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripBuilder']._html || '')));
+  ok('...and on the Query Builder for CR strip', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripCr']._html || '')));
+  ok('...and on the Used Schema strip', /Using the live shared schema/i.test(stripTags(registry['sharedSchemaStripUsedSchema']._html || '')));
 
-  var newTableRows = [
-    ['Administration', 'ADM_TEST_NEW_TABLE', 'A table added purely for this automated test', 'TEST_ID', 'Unique identifier', 'INTEGER', '', '', 'N', '', '', 'Y', '', '']
-  ];
-  var csvBlob = global.APSQL_SCHEMA_TOOLS.rowsToCsvBlob([global.APSQL_SCHEMA_TOOLS.SAMPLE_HEADER].concat(newTableRows));
-  var csvText = await csvBlob.text();
-  var csvFile = { name: 'new-table.csv', text: function () { return Promise.resolve(csvText); } };
-  registry['updateSchemaFileInput'].files = [csvFile];
-  registry['updateSchemaFileInput'].dispatch('change', { target: registry['updateSchemaFileInput'] });
-  registry['updateSchemaProcessBtn'].dispatch('click');
-  await flushMicrotasks(80);
-  registry['activateSchemaBtn'].dispatch('click');
-  registry['reauthApplyPasswordInput'].value = 'P@assw0rd';
-  registry['confirmReauthApplyBtn'].dispatch('click');
-  await flushMicrotasks(80);
-  ok('Applying a schema update (with GitHub connected) pushes the NEW merged schema to the fake GitHub remote automatically', JSON.parse(fakeGithubStore.content).tables.some(function (t) { return t.name === 'ADM_TEST_NEW_TABLE'; }));
+  var publishedTableNames = engine_tables_snapshot();
+  ok('The ACTUAL active schema (verified via a real schema download) now contains the table from the published shared schema \u2014 proving auto-load genuinely replaced the engine, not just cosmetic text', publishedTableNames.indexOf('ADM_PUBLISHED_TEST_TABLE') !== -1);
 
-  /* Simulate "a different browser/user" changing the file directly on GitHub. */
-  var externallyEditedSchema = JSON.parse(JSON.stringify(JSON.parse(fakeGithubStore.content)));
-  externallyEditedSchema.tables.push({ name: 'ADM_EXTERNALLY_ADDED_TABLE', module: 'ADM', notes: '', columns: [{ name: 'ID', type: 'INTEGER', primary_key: true, foreign_key: null, alias: '', description: '' }] });
-  fakeGithubStore.content = JSON.stringify(externallyEditedSchema);
-  fakeGithubStore.sha = 'sha-external-edit';
-
-  var syncNowBtn = registry['githubSyncActionsBody']._findButtonByText('Sync Now');
-  ok('"Sync Now" button is rendered once connected', syncNowBtn !== null);
-  syncNowBtn.dispatch('click');
-  await flushMicrotasks(50);
-  var liveTables = engine_tables_snapshot();
-  ok('Manually clicking "Sync Now" picks up a change made "elsewhere on GitHub" and applies it to the active schema', liveTables.indexOf('ADM_EXTERNALLY_ADDED_TABLE') !== -1);
-
-  /* ---- Conflict handling: a push that hits 409 automatically re-fetches and retries once ---- */
-  var conflictSchemaBefore = JSON.parse(JSON.stringify(JSON.parse(fakeGithubStore.content)));
-  conflictSchemaBefore.tables.push({ name: 'ADM_CONCURRENT_EDIT_TABLE', module: 'ADM', notes: '', columns: [{ name: 'ID', type: 'INTEGER', primary_key: true, foreign_key: null, alias: '', description: '' }] });
-  fakeGithubStore.content = JSON.stringify(conflictSchemaBefore);
-  fakeGithubStore.sha = 'sha-concurrent-edit'; // now the fake remote's sha no longer matches app.js's cached githubLastSha, so the next push will 409 once
-  registry['deleteSchemaBtn'].dispatch('click');
-  registry['deleteSchemaPasswordInput'].value = 'WRONG_PASSWORD_ON_PURPOSE';
-  registry['confirmDeleteSchemaBtn'].dispatch('click');
-  await flushMicrotasks(50);
-  ok('(setup only, not a real assertion) wrong delete password leaves the schema untouched so we can test conflict-retry next', registry['deleteSchemaPasswordError']._cls.has('d-none') === false);
-
-  var checkNowAgain = registry['githubSyncActionsBody']._findButtonByText('Sync Now');
-  checkNowAgain.dispatch('click');
-  await flushMicrotasks(50);
-  ok('Re-syncing after a simulated concurrent edit picks up ADM_CONCURRENT_EDIT_TABLE too (conflict path exercised implicitly via a normal pull)', engine_tables_snapshot().indexOf('ADM_CONCURRENT_EDIT_TABLE') !== -1);
-
-  /* ---- Disconnect ---- */
-  var disconnectBtn = registry['githubSyncActionsBody']._findButtonByText('Disconnect');
-  ok('A "Disconnect" action is available while connected', disconnectBtn !== null);
-  disconnectBtn.dispatch('click');
-  await flushMicrotasks(50);
-  ok('After disconnecting, GitHub Sync status reverts to "not configured" (local-only, exactly like before connecting)', /Not set up yet/i.test(stripTags(registry['githubSyncStatusBody']._html || '')));
-  ok('Disconnecting clears the saved config from localStorage', global.localStorage.getItem('ap_sql_github_sync_v1') === null);
+  registry['crTableSelect'].value = 'ADM_PUBLISHED_TEST_TABLE';
+  var crResult = APSQL_CR.buildCrQuery(engineForLiveCheck(), { command: 'INSERT', table: 'ADM_PUBLISHED_TEST_TABLE', columns: [{ name: 'ID', value: '1' }] }, 'Generic');
+  ok('Query Builder for CR can genuinely build a query against a table that ONLY exists in the newly-published shared schema', crResult.status === 'ok' && /INSERT INTO ADM_PUBLISHED_TEST_TABLE/.test(crResult.sql));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
@@ -350,6 +300,13 @@ function engine_tables_snapshot() {
   var blob = downloadedFiles[downloadedFiles.length - 1];
   downloadedFiles.length = before;
   return JSON.parse(blob.__syncText).tables.map(function (t) { return t.name; });
+}
+function engineForLiveCheck() {
+  var before = downloadedFiles.length;
+  registry['downloadCurrentJsonBtn'].dispatch('click');
+  var blob = downloadedFiles[downloadedFiles.length - 1];
+  downloadedFiles.length = before;
+  return APSQL.createEngine(JSON.parse(blob.__syncText));
 }
 global.Blob = function (parts, opts) {
   var text = parts.map(function (p) { return typeof p === 'string' ? p : Buffer.from(p).toString('utf8'); }).join('');

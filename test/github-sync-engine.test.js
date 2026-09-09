@@ -2,18 +2,10 @@
 var path = require('path');
 var G = require(path.join(__dirname, '..', 'js', 'github-sync-engine.js'));
 
-/* ---------------------------------------------------------------------
-   A minimal, faithful in-memory fake of GitHub's REST Contents API
-   (https://docs.github.com/en/rest/repos/contents), covering exactly the
-   subset github-sync-engine.js actually calls: GET .../contents/{path}
-   and PUT .../contents/{path}. Tracks one file's content + sha, and can
-   simulate 404 (file not found), 401/403 (bad token), 409 (concurrent
-   edit conflict), and 422 (invalid request) responses on demand.
-   --------------------------------------------------------------------- */
 function makeFakeGitHubFetch(opts) {
   opts = opts || {};
   var store = { content: opts.initialContent || null, sha: opts.initialSha || null };
-  var forcedStatus = null; // when set, every call returns this status once
+  var forcedStatus = null;
   var calls = [];
   function fetchImpl(url, init) {
     calls.push({ url: url, init: init });
@@ -47,7 +39,6 @@ function makeFakeStorage() {
 }
 var VALID_CONFIG = { owner: 'acme-corp', repo: 'ap-sql-schema-store', path: 'ap-sql-assistant-schema.json', branch: 'main', token: 'ghp_faketoken123' };
 
-/* ---- base64 encode/decode ---- */
 test('base64EncodeBytes/base64DecodeToBytes round-trips arbitrary byte sequences', function () {
   var bytes = new Uint8Array([0, 1, 2, 254, 255, 128, 64, 32, 16, 8, 4, 2, 1]);
   var decoded = G.base64DecodeToBytes(G.base64EncodeBytes(bytes));
@@ -64,7 +55,6 @@ test('base64ToUtf8 tolerates newline-wrapped base64 (as GitHub\u2019s API actual
   assertEqual(G.base64ToUtf8(wrapped), text);
 });
 
-/* ---- config store ---- */
 test('createConfigStore: loadConfig returns null when nothing saved yet', function () {
   var store = G.createConfigStore(makeFakeStorage());
   assertEqual(store.loadConfig(), null);
@@ -87,7 +77,6 @@ test('createConfigStore: loadConfig returns null gracefully for corrupted JSON',
   assertEqual(store.loadConfig(), null);
 });
 
-/* ---- isConfigComplete / normalizeBranch / URL builders ---- */
 test('isConfigComplete is true only when owner, repo, path, and token are all present', function () {
   assertTrue(G.isConfigComplete(VALID_CONFIG));
   assertFalse(G.isConfigComplete({ owner: 'x', repo: 'y', path: 'z.json' }));
@@ -108,7 +97,6 @@ test('buildContentsUrl URL-encodes path segments with special characters', funct
   assertIncludes(url, 'a%20folder/schema%20file.json');
 });
 
-/* ---- fetchRemoteSchema ---- */
 test('fetchRemoteSchema resolves {exists:false} for a 404 (file does not exist yet)', function () {
   var fetchImpl = makeFakeGitHubFetch({});
   return G.fetchRemoteSchema(VALID_CONFIG, fetchImpl).then(function (result) { assertEqual(result.exists, false); });
@@ -152,7 +140,6 @@ test('fetchRemoteSchema rejects with a network-error message when fetch itself r
   return G.fetchRemoteSchema(VALID_CONFIG, failingFetch).then(function () { throw new Error('expected rejection'); }, function (err) { assertIncludes(err.message, 'network error'); });
 });
 
-/* ---- pushSchemaToGitHub ---- */
 test('pushSchemaToGitHub creates a brand-new file (no prior sha) and returns the new sha', function () {
   var fetchImpl = makeFakeGitHubFetch({});
   return G.pushSchemaToGitHub(VALID_CONFIG, { schema_name: 'New', tables: [] }, null, fetchImpl).then(function (result) {
@@ -198,7 +185,6 @@ test('pushSchemaToGitHub sends the schema as valid UTF-8-safe base64 in the requ
   });
 });
 
-/* ---- End-to-end round trip: fetch -> modify -> push -> re-fetch ---- */
 test('end-to-end: create, then read it back, then update it, then read the update back', function () {
   var fetchImpl = makeFakeGitHubFetch({});
   return G.fetchRemoteSchema(VALID_CONFIG, fetchImpl)
@@ -209,7 +195,6 @@ test('end-to-end: create, then read it back, then update it, then read the updat
     .then(function (r2) { assertTrue(r2.exists); assertEqual(r2.schema.schema_name, 'V2'); });
 });
 
-/* ---- describeGitHubSyncStatus (pure) ---- */
 test('describeGitHubSyncStatus: not configured yet', function () {
   assertEqual(G.describeGitHubSyncStatus({ configured: false }).level, 'unconfigured');
 });

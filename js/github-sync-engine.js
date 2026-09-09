@@ -1,56 +1,6 @@
-/**
- * github-sync-engine.js — AP-SQL Assistant Version 10.3 (NEW)
- * ---------------------------------------------------------------------------
- * V10.2 added Cross-Device Schema Sync via the browser's File System Access
- * API — but that only works in Chromium browsers (Chrome/Edge/etc.), and
- * requires manually picking a shared file location (SharePoint/OneDrive/a
- * network drive). It does NOT help if the app itself is hosted as a plain
- * static site (e.g. GitHub Pages), where there is no server component of
- * any kind, and users may be on Firefox or Safari too.
- *
- * Since GitHub already hosts this application, this module uses GitHub
- * itself as the sync backend: the active schema is read from, and written
- * to, a single JSON file inside a GitHub repository via GitHub's ordinary
- * REST "Contents" API (https://docs.github.com/en/rest/repos/contents).
- * This works in ANY modern browser (Chrome, Edge, Firefox, Safari) because
- * it is nothing more than a small number of authenticated fetch() calls —
- * no browser-specific API is required. Any user, on any device, who is
- * configured to point at the same repo/path/branch will see the same
- * schema, making this a natural fit for a GitHub Pages-hosted deployment.
- *
- * Design notes:
- *   - Every network call goes through an injectable `fetchImpl` parameter
- *     (defaulting to the real global `fetch`), so this entire module is
- *     unit-testable with a fake fetch implementation, exactly like
- *     schema-sync-engine.js is tested with a fake IndexedDB.
- *   - Base64 encode/decode is implemented from scratch (no reliance on
- *     atob/btoa, which are not guaranteed to exist identically across
- *     every JS environment) so this module behaves identically in the
- *     browser and under Node during testing — consistent with this
- *     project's existing "no external dependencies" convention (see the
- *     hand-rolled SHA-256 and ZIP writer in schema-tools.js).
- *   - This module NEVER stores or transmits the schema or the user's
- *     Personal Access Token anywhere except directly to api.github.com
- *     over HTTPS. Persisting the token itself (so the user need not
- *     re-enter it every session) is left to the caller (app.js), which
- *     uses ordinary localStorage — the same tradeoff already accepted for
- *     other settings in this app, and clearly disclosed in the UI.
- *   - Concurrency is handled via GitHub's own optimistic-concurrency
- *     mechanism: every file read returns a `sha`; every write must supply
- *     the `sha` of the version being replaced (omitted only when creating
- *     a brand new file), and GitHub rejects a write with 409 if the file
- *     has changed since that sha was read — signaled here as
- *     { conflict: true } so the caller can re-fetch and retry.
- * ---------------------------------------------------------------------------
- */
 (function (root) {
   'use strict';
 
-  /* ---------------------------------------------------------------------
-     Base64 <-> bytes, implemented from scratch (UTF-8 safe via
-     TextEncoder/TextDecoder), so this module has zero dependency on
-     btoa/atob or any Node-specific Buffer API.
-     --------------------------------------------------------------------- */
   var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
   function base64EncodeBytes(bytes) {
@@ -94,11 +44,6 @@
   function utf8ToBase64(str) { return base64EncodeBytes(new TextEncoder().encode(String(str))); }
   function base64ToUtf8(b64) { return new TextDecoder().decode(base64DecodeToBytes(b64)); }
 
-  /* ---------------------------------------------------------------------
-     Connection config persistence (owner/repo/path/branch/token). Storage
-     is injectable so this is fully testable with a fake in-memory store;
-     app.js supplies the real localStorage.
-     --------------------------------------------------------------------- */
   var CONFIG_STORAGE_KEY = 'ap_sql_github_sync_v1';
   function createConfigStore(storageImpl) {
     storageImpl = storageImpl || (typeof localStorage !== 'undefined' ? localStorage : null);
@@ -138,14 +83,6 @@
     return { Authorization: 'Bearer ' + config.token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   }
 
-  /**
-   * fetchRemoteSchema(config, fetchImpl) — GET the configured file.
-   * Resolves to:
-   *   { exists: true,  schema, sha }         — file found and parsed OK
-   *   { exists: false }                      — file does not exist yet (404)
-   * Rejects with a clear Error for auth failures, permission errors,
-   * network errors, or a file that exists but isn't valid schema JSON.
-   */
   function fetchRemoteSchema(config, fetchImpl) {
     fetchImpl = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
     if (!fetchImpl) return Promise.reject(new Error('The fetch API is not available in this environment.'));
@@ -168,15 +105,6 @@
     }, function () { return Promise.reject(new Error('Could not reach GitHub (network error). Check your internet connection and try again.')); });
   }
 
-  /**
-   * pushSchemaToGitHub(config, schemaObj, sha, fetchImpl) — PUT the schema
-   * as the configured file's new content. Pass `sha` from the most recent
-   * fetchRemoteSchema() result; omit/pass null to create the file for the
-   * first time. Resolves to { sha: newSha }. Rejects with { conflict: true,
-   * message } specifically when GitHub reports 409 (someone else changed
-   * the file since this sha was read) so callers can re-fetch and retry;
-   * rejects with a plain Error (no .conflict) for every other failure.
-   */
   function pushSchemaToGitHub(config, schemaObj, sha, fetchImpl) {
     fetchImpl = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
     if (!fetchImpl) return Promise.reject(new Error('The fetch API is not available in this environment.'));
@@ -199,12 +127,6 @@
     }, function () { return Promise.reject(new Error('Could not reach GitHub (network error). Check your internet connection and try again.')); });
   }
 
-  /**
-   * describeGitHubSyncStatus(state) — pure function turning a small state
-   * object into a plain-language {level, text}, mirroring
-   * schema-sync-engine.js's describeSyncStatus() for visual/behavioral
-   * consistency between the two sync mechanisms.
-   */
   function describeGitHubSyncStatus(state) {
     state = state || {};
     if (state.error) return { level: 'error', text: state.error };

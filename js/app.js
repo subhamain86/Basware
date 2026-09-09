@@ -29,8 +29,76 @@
   var decodeStore = APSQL_DECODE.createDecodeStore();
 
   /* ================================================================
+     V10.4: LIVE SHARED SCHEMA — zero-config auto-load on EVERY device
+     and browser. This runs on every page load (and periodically), with
+     NO administrator setup required on the consuming side: it is simply
+     a plain, unauthenticated, same-origin fetch of a well-known JSON
+     file path. Whatever schema an administrator publishes there (see
+     GitHub Sync below, whose default File Path matches this exact
+     location) becomes instantly available to literally any visitor.
+     ================================================================ */
+  var sharedSchemaChecked = false;
+  var sharedSchemaFound = false;
+  var sharedSchemaError = null;
+  var sharedSchemaLastAppliedAt = null;
+  var SHARED_SCHEMA_PATH = APSQL_SHARED_SCHEMA.DEFAULT_SHARED_SCHEMA_PATH;
+
+  function renderSharedSchemaStrip(elId, opts) {
+    var el = $(elId); if (!el) return;
+    opts = opts || {};
+    var state = { checked: sharedSchemaChecked, found: sharedSchemaFound, error: sharedSchemaError, path: SHARED_SCHEMA_PATH };
+    var status = APSQL_SHARED_SCHEMA.describeSharedSchemaStatus(state);
+    el.className = 'shared-schema-strip level-' + status.level;
+    var icon = status.level === 'live' ? '<span class="shared-schema-pulse"></span>' : '<i class="bi ' + (status.level === 'checking' ? 'bi-hourglass-split' : status.level === 'error' ? 'bi-exclamation-triangle-fill' : 'bi-hdd-fill') + '"></i>';
+    var refreshBtn = opts.withRefresh ? '<button class="btn btn-outline-secondary btn-sm" type="button" id="' + elId + 'RefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>' : '';
+    el.innerHTML = icon + '<span class="shared-schema-text">' + esc(status.text) + '</span>' + refreshBtn;
+    if (opts.withRefresh) { var btn = $(elId + 'RefreshBtn'); if (btn) btn.addEventListener('click', function () { checkSharedSchema(true); }); }
+  }
+  function renderAllSharedSchemaStrips() {
+    renderSharedSchemaStrip('sharedSchemaStripQuickstart');
+    renderSharedSchemaStrip('sharedSchemaStripBuilder');
+    renderSharedSchemaStrip('sharedSchemaStripCr');
+    renderSharedSchemaStrip('sharedSchemaStripUsedSchema');
+    var adminEl = $('sharedSchemaStatusBodyAdmin');
+    if (adminEl) {
+      var state = { checked: sharedSchemaChecked, found: sharedSchemaFound, error: sharedSchemaError, path: SHARED_SCHEMA_PATH };
+      var status = APSQL_SHARED_SCHEMA.describeSharedSchemaStatus(state);
+      adminEl.innerHTML = '<div class="shared-schema-strip level-' + status.level + '">' +
+        (status.level === 'live' ? '<span class="shared-schema-pulse"></span>' : '<i class="bi ' + (status.level === 'checking' ? 'bi-hourglass-split' : status.level === 'error' ? 'bi-exclamation-triangle-fill' : 'bi-hdd-fill') + '"></i>') +
+        '<span class="shared-schema-text">' + esc(status.text) + '</span></div>';
+    }
+    var pathDisplays = ['sharedSchemaPathDisplay', 'sharedSchemaPathDisplay2'];
+    pathDisplays.forEach(function (id) { var el = $(id); if (el) el.textContent = SHARED_SCHEMA_PATH; });
+  }
+  function checkSharedSchema(isManualCheck) {
+    return APSQL_SHARED_SCHEMA.fetchSharedSchema(SHARED_SCHEMA_PATH).then(function (result) {
+      sharedSchemaChecked = true; sharedSchemaError = null;
+      if (!result.found) { sharedSchemaFound = false; renderAllSharedSchemaStrips(); return; }
+      var tablesToValidate = Array.isArray(result.schema) ? result.schema : result.schema.tables;
+      var validation = window.APSQL_SCHEMA_TOOLS.validateSchema(tablesToValidate);
+      if (!validation.valid) { sharedSchemaFound = false; sharedSchemaError = 'The published shared schema failed validation, so it was ignored.'; renderAllSharedSchemaStrips(); return; }
+      sharedSchemaFound = true; sharedSchemaLastAppliedAt = new Date();
+      currentSchema = result.schema; rebuildEngine();
+      try { localStorage.setItem(SCHEMA_STORAGE_KEY, JSON.stringify(currentSchema)); } catch (e) { }
+      schemaLoadedFromStorage = true;
+      refreshAllViewsAfterSchemaChange();
+      renderSchemaPersistenceStatus();
+      renderAllSharedSchemaStrips();
+    }).catch(function (err) {
+      sharedSchemaChecked = true;
+      sharedSchemaFound = false;
+      sharedSchemaError = isManualCheck ? err.message : null; // silent on background/auto checks — this is a best-effort convenience feature
+      renderAllSharedSchemaStrips();
+    });
+  }
+  renderAllSharedSchemaStrips();
+  checkSharedSchema(false);
+  setInterval(function () { if (typeof document.hidden === 'undefined' || !document.hidden) checkSharedSchema(false); }, 30000);
+  if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', function () { if (!document.hidden) checkSharedSchema(false); });
+
+  /* ================================================================
      CROSS-DEVICE SCHEMA SYNC — OPTION A: File System Access API
-     (unchanged from V10.2)
+     (unchanged from V10.2/V10.3 — administrator-facing)
      ================================================================ */
   var syncSupported = APSQL_SYNC.isFileSystemAccessSupported(window);
   var syncHandleStore = syncSupported ? APSQL_SYNC.createHandleStore() : null;
@@ -167,10 +235,8 @@
   }
 
   /* ================================================================
-     CROSS-DEVICE SCHEMA SYNC — OPTION B: GitHub (NEW in V10.3)
-     Works in every browser, since it's just authenticated fetch() calls
-     to GitHub's own REST Contents API — no browser-specific API needed.
-     A natural fit when this application itself is hosted on GitHub Pages.
+     CROSS-DEVICE SCHEMA SYNC — OPTION B: GitHub (unchanged from V10.3
+     — administrator-facing push/pull with a Personal Access Token)
      ================================================================ */
   var githubConfigStore = APSQL_GITHUB_SYNC.createConfigStore();
   var githubConfig = null;
@@ -282,15 +348,19 @@
     var saved = githubConfigStore.loadConfig();
     if (!saved) { renderGithubSyncStatus(); return; }
     $('githubOwnerInput').value = saved.owner || ''; $('githubRepoInput').value = saved.repo || '';
-    $('githubBranchInput').value = saved.branch || 'main'; $('githubPathInput').value = saved.path || 'ap-sql-assistant-schema.json';
+    $('githubBranchInput').value = saved.branch || 'main'; $('githubPathInput').value = saved.path || SHARED_SCHEMA_PATH;
     $('githubTokenInput').value = saved.token || '';
     githubConfig = saved;
     checkGithubForUpdates(false).then(function () { renderGithubSyncStatus(); });
   })();
+  /* Default the GitHub Sync "File Path" field to the exact same path the
+     Live Shared Schema auto-loader checks, so an admin who hasn't yet
+     saved a custom path sees them already aligned by default. */
+  (function defaultGithubPathToSharedPath() {
+    var pathInput = $('githubPathInput');
+    if (pathInput && !pathInput.value) pathInput.value = SHARED_SCHEMA_PATH;
+  })();
 
-  /* A single shared poll: re-check whichever sync mechanisms are active,
-     roughly every 20 seconds while the tab is visible — comfortably
-     within GitHub's authenticated rate limit (5000 requests/hour). */
   setInterval(function () { if (typeof document.hidden === 'undefined' || !document.hidden) { checkLinkedFileForUpdates(false); checkGithubForUpdates(false); } }, 20000);
   if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', function () { if (!document.hidden) { checkLinkedFileForUpdates(false); checkGithubForUpdates(false); } });
 
@@ -1154,14 +1224,15 @@
   var aboutModalEl = $('aboutModal'); var aboutModal = window.bootstrap ? new window.bootstrap.Modal(aboutModalEl) : null;
   $('aboutMenuBtn').addEventListener('click', function () {
     var st = engine.getStatus();
-    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.3.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both \u2014 correcting SQL queries based on database errors, and syncing schema updates across browsers/devices/users via a linked shared file and/or GitHub, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. Schema updates, deletions, and manually-defined relationships are password-protected and re-verified before every mutating action. The active schema is saved in this browser, and optionally also synced to a linked shared file and/or a GitHub-hosted file the administrator explicitly configures \u2014 no schema data (nor the GitHub token) is ever sent to any destination other than api.github.com.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
+    $('aboutList').innerHTML = [['Application name', 'AP-SQL Assistant'], ['Application version', '10.4.0'], ['Purpose', 'Building read-only SQL and Change Request (INSERT/UPDATE/DELETE) SQL text \u2014 from a plain-language description, manual selections, or both \u2014 correcting SQL queries based on database errors, and automatically using a live, zero-configuration shared schema on every device and browser, all using the organization\'s approved database schema.'], ['Active schema version', st.schemaVersion], ['Schema last updated', st.lastUpdated], ['Security', 'Read-only builder never emits mutating SQL. CR builder and Error Rectifier only ever produce SQL text and never execute it, connect to a database, or modify the active schema. The Live Shared Schema check is a plain, unauthenticated, same-origin file read \u2014 no credentials are ever involved on the reading side. Schema updates, deletions, and manually-defined relationships remain password-protected and re-verified before every mutating action, whether saved locally, to a linked shared file, or pushed to GitHub.']].map(function (row) { return '<li class="list-group-item"><span class="text-body-secondary d-block small">' + row[0] + '</span>' + esc(row[1]) + '</li>'; }).join('');
     closeMenu(); if (aboutModal) aboutModal.show(); else aboutModalEl.classList.add('show');
   });
 
   var WORKFLOW_STEPS = ['Upload Document', 'Read Document', 'Detect Format', 'Detect Modules', 'Detect Tables', 'Detect Columns', 'Extract Metadata', 'Normalize Schema', 'Validate Schema', 'Show Preview', 'User Reviews Changes', 'Generate JSON', 'Validate JSON', 'Apply Schema Update'];
   function renderWorkflowSteps(activeIdx) { $('workflowStepList').innerHTML = WORKFLOW_STEPS.map(function (s, i) { var cls = i < activeIdx ? 'text-bg-success' : (i === activeIdx ? 'text-bg-primary' : 'text-bg-light border'); return '<span class="badge ' + cls + '">' + (i + 1) + '. ' + s + '</span>'; }).join(''); }
   renderWorkflowSteps(0);
-  $('updateSchemaPasswordBtn').addEventListener('click', function () { var pw = $('updateSchemaPasswordInput').value; window.APSQL_SCHEMA_TOOLS.verifyPassword(pw).then(function (ok) { if (ok) { $('updateSchemaPasswordStep').classList.add('d-none'); $('updateSchemaWorkArea').classList.remove('d-none'); renderWorkflowSteps(1); renderSyncStatus(); renderGithubSyncStatus(); } else $('updateSchemaPasswordError').classList.remove('d-none'); }); });
+  $('updateSchemaPasswordBtn').addEventListener('click', function () { var pw = $('updateSchemaPasswordInput').value; window.APSQL_SCHEMA_TOOLS.verifyPassword(pw).then(function (ok) { if (ok) { $('updateSchemaPasswordStep').classList.add('d-none'); $('updateSchemaWorkArea').classList.remove('d-none'); renderWorkflowSteps(1); renderSyncStatus(); renderGithubSyncStatus(); renderAllSharedSchemaStrips(); } else $('updateSchemaPasswordError').classList.remove('d-none'); }); });
+  $('sharedSchemaRefreshBtn').addEventListener('click', function () { checkSharedSchema(true); });
   function triggerDownload(blob, filename) { var url = URL.createObjectURL(blob); var a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function () { URL.revokeObjectURL(url); }, 2000); }
   $('downloadCurrentJsonBtn').addEventListener('click', function () { triggerDownload(window.APSQL_SCHEMA_TOOLS.buildCurrentSchemaJsonBlob(currentSchema), 'current-schema.json'); });
   $('downloadCurrentCsvBtn').addEventListener('click', function () { triggerDownload(window.APSQL_SCHEMA_TOOLS.buildCurrentSchemaCsvBlob(currentSchema), 'current-schema.csv'); });
@@ -1208,7 +1279,7 @@
     schemaLoadedFromStorage = true; persistCurrentSchema(); renderSchemaPersistenceStatus();
     renderWorkflowSteps(13);
     refreshAllViewsAfterSchemaChange();
-    $('updateSchemaResult').innerHTML = '<div class="alert alert-success py-2"><div><strong>' + mergeResult.addedTables.length + '</strong> new table(s), <strong>' + mergeResult.addedColumns.length + '</strong> new column(s) added.</div><div class="mt-2"><code>Schema Version: ' + esc(currentSchema.schema_version) + '</code></div><div class="mt-2">The new schema is now active everywhere in this app \u2014 Used Schema, both Query Builders, Error Rectifier, filters, decode, and validation \u2014 and has been saved in this browser (and pushed to any linked shared file / connected GitHub repo), so it will still be here after a refresh.</div></div>';
+    $('updateSchemaResult').innerHTML = '<div class="alert alert-success py-2"><div><strong>' + mergeResult.addedTables.length + '</strong> new table(s), <strong>' + mergeResult.addedColumns.length + '</strong> new column(s) added.</div><div class="mt-2"><code>Schema Version: ' + esc(currentSchema.schema_version) + '</code></div><div class="mt-2">The new schema is now active everywhere in this app \u2014 Used Schema, both Query Builders, Error Rectifier, filters, decode, and validation \u2014 and has been saved in this browser (and pushed to any linked shared file / connected GitHub repo), so it will still be here after a refresh. If GitHub Sync is pointed at the Live Shared Schema path, every device and browser will pick it up automatically once GitHub Pages rebuilds.</div></div>';
     $('updateSchemaPreviewCard').classList.add('d-none'); pendingIncomingTables = null;
   }
   var reauthApplyModalEl = $('reauthApplyModal'); var reauthApplyModal = window.bootstrap ? new window.bootstrap.Modal(reauthApplyModalEl) : null;
@@ -1317,6 +1388,7 @@
   var TOURS = {
     quickstart: [
       { sel: '[data-tour="hamburger"]', place: 'bottom', title: 'What this application does', body: '<p>This tool writes read-only SQL, Change Request SQL, and helps correct a SQL query when a database gives you back an error.</p>' },
+      { sel: '[data-tour="shared-schema-strip"]', place: 'bottom', title: 'Live Shared Schema (new in V10.4)', body: '<p>Every device and browser that opens this app automatically checks for a published shared schema \u2014 no setup required. This status line tells you whether one is currently in use.</p>' },
       { sel: '#qsExampleGrid', place: 'top', title: 'Try an example', body: '<p>Click any card to load a ready-made example straight into the Read Only Query Builder.</p>' },
       { sel: '[data-tour="tourbtn"]', place: 'bottom', title: 'Two ways to build a query', body: '<p>Describe what you need in plain language, make selections manually, or combine both.</p>' }
     ],
@@ -1338,8 +1410,9 @@
     ],
     updateschema: [
       { sel: '#schemaPersistenceStatus', place: 'bottom', title: 'Your schema changes are saved', body: '<p>Saved in this browser.</p>' },
+      { sel: '[data-tour="shared-schema-card"]', place: 'bottom', title: 'Live Shared Schema (new in V10.4)', body: '<p>This is what makes the schema available automatically on every device and browser, with zero setup on their end. Point GitHub Sync\u2019s File Path at this exact location to publish.</p>' },
       { sel: '[data-tour="sync-card"]', place: 'bottom', title: 'Option A — a shared file (Chrome/Edge)', body: '<p>Link the schema to a single shared file. This needs a Chromium browser.</p>' },
-      { sel: '[data-tour="github-sync-card"]', place: 'bottom', title: 'Option B — sync via GitHub (new in V10.3)', body: '<p>Works in every browser, since it just talks to GitHub\u2019s REST API. Ideal if this app is hosted on GitHub Pages: point every user at the same repo/path, and everyone stays in sync.</p>' },
+      { sel: '[data-tour="github-sync-card"]', place: 'bottom', title: 'Option B — sync via GitHub', body: '<p>Works in every browser. Set the File Path here to match the Live Shared Schema path above to feed it automatically.</p>' },
       { sel: '#updateSchemaPasswordStep', place: 'bottom', title: 'Password-protected administrator action', body: '<p>Only authorized users can update the schema.</p>' }
     ],
     errorrectifier: [

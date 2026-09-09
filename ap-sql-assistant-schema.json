@@ -1,0 +1,19 @@
+{
+  "schema_name": "AP-SQL Assistant Embedded Schema",
+  "schema_version": "0.0",
+  "last_updated": "2026-09-08",
+  "source_documents": [
+    "Embedded sample — replace via Schema > Update Schema",
+    "Schema deleted by administrator on 2026-09-08 — awaiting new upload",
+    "best-working-schema1.json",
+    "Schema deleted by administrator on 2026-09-08 — awaiting new upload"
+  ],
+  "module_labels": {
+    "IA": "Invoice Automation",
+    "OM": "Order Management",
+    "PP": "Purchase Process",
+    "PE": "Payment Execution",
+    "ADM": "Administration"
+  },
+  "tables": []
+}

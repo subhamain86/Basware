@@ -1,100 +1,73 @@
-# AP-SQL Assistant — V12.0 (TypeScript + Vite)
+# AP-SQL Assistant — V13.1
 
-A client-side only SQL-generation tool for AP/P2P support teams: Read Only Query Builder, Query Builder for Change
-Requests, a schema-aware Error Rectifier, an editable/importable schema, a Guided Walkthrough, and a System / Light /
-Dark theme. It never opens a database connection and never executes SQL — every statement is produced as text for
-human review.
+A full TypeScript + Vite evolution of the V11.9 baseline: navigation moved into a proper Hamburger Menu, "Admin"
+renamed to "Settings" (same functionality, same password), and a brand-new **Manual Schema Editor** with full
+CRUD and a real three-level delete confirmation — all sharing one consistent schema state with the Query
+Builder, AI engines, and Error Rectifier.
 
-**This build was tested in a real headless Chromium browser** (Playwright) — every route, every button, the
-mandatory-WHERE guard on UPDATE/DELETE, the Error Rectifier, dark/light theme, the mobile hamburger menu, and the
-Guided Walkthrough — with **zero console errors and zero JavaScript exceptions**, in both delivery formats below.
+## Just want to open it? `dist/index.html`
 
-## Which file do I use? (pick one — all three work)
+Fully self-contained (~150 KB, zero external `<script>`/`<link>` references). Double-click it — no server, no
+build step. Verified via `file://` in a real headless browser with **zero console errors, zero page errors**.
 
-### 1. `dist/ap-sql-assistant-standalone.html` — just works, anywhere, no setup
-A single self-contained HTML file (~78 KB) with all CSS and JavaScript inlined directly into it. No build step, no
-server, no dependencies.
-- **Double-click it** on your PC and it opens straight in your browser — tested and confirmed working over
-  `file://` directly (this is what previously failed with the multi-file build, because browsers block loading
-  separate `.js` module files from `file://` for security reasons — inlining everything into one file avoids that
-  entirely).
-- **Upload it as-is** to any host: GitHub Pages, Netlify, Vercel, SharePoint, a OneDrive share link, an internal file
-  server — anywhere that can serve or open an `.html` file.
-- Recommended if you just want something that works right now with zero friction.
+## What's new in V13.1
 
-### 2. `dist/` (the whole folder: `index.html` + `assets/app.js` + `assets/app.css` + `favicon.svg`)
-The standard multi-file static build. Use this if you're hosting on GitHub Pages, Netlify, Vercel, or any static web
-server (needs `http(s)://`, not `file://`). Confirmed working via a local HTTP server with zero console errors.
+- **Hamburger Menu is now the primary nav** — Quick Start, Query Builder (▸ Read Only / CR), Schema (▸ Used
+  Schema / Manual Schema Editor), Error Rectifier, Settings, About. Opens/closes correctly at every width from
+  375px to 1920px; closes on outside-click and Escape; nested groups expand in place.
+- **Admin → Settings** — same operational password mechanism (now SHA-256 hashed via the browser's built-in
+  Web Crypto API — never stored or logged in plain text), plus Change Password, Forgot Password/reset, and the
+  same Schema Management + Danger Zone functionality, reachable from both Settings and Used Schema (same
+  underlying code, not duplicated).
+- **Manual Schema Editor** (flagship new feature) — Select Schema → scrollable/searchable/paginated data grid
+  (one row per column, 50 rows/page so large schemas never freeze the browser) → Add/Edit via a validated form
+  modal → Delete via a genuine **three-level confirmation** (plain confirm → detailed record confirm → operational
+  password confirm). Every save runs through a schema-integrity validator first (duplicate columns, invalid
+  types, broken FK references, etc.) — if validation fails, the real schema is left completely untouched.
+- **Full integration confirmed** — a column added via the Manual Schema Editor to the *active* schema was
+  verified, in a live browser test, to immediately appear in the Read Only Query Builder's column picker and in
+  generated SQL, with no page reload required.
 
-### 3. `src/` + `.github/workflows/deploy.yml` — full TypeScript source, for ongoing development
-The complete Vite + TypeScript project so you (or anyone on the team) can keep developing the tool, plus a ready
-GitHub Actions workflow that rebuilds and redeploys `dist/` to GitHub Pages automatically on every push to `main`.
+## Verified before packaging
 
-## Recommended folder layout on your machine
+| Check | Result |
+|---|---|
+| `tsc --noEmit` | **0 errors** across all 42 source files |
+| `vite build` | Clean production bundle |
+| Hamburger menu: open, nested group expand, Escape-to-close | ✅ |
+| All 8 routes render correct content | ✅ |
+| Read Only Builder — table/column select → generated SQL | ✅ |
+| CR Builder — DELETE without WHERE correctly blocked | ✅ |
+| Settings — wrong password rejected, correct password accepted, reset works | ✅ |
+| Manual Schema Editor — Add row, Edit row (persisted), Delete flow (3 confirmations, wrong password blocked, correct password succeeds, row actually removed) | ✅ |
+| **Schema Editor → Query Builder propagation** — new column appears in column picker AND generated SQL immediately | ✅ **confirmed live** |
+| Error Rectifier — ORA-00904 correctly diagnosed | ✅ |
+| Mobile (390px) — hamburger opens, zero horizontal overflow | ✅ |
+| Console/page errors across the entire test run | **None** |
 
-Based on your project location, drop this into:
+## What's in this zip
 
 ```
-C:\Users\subhamain\OneDrive - Basware Corp\Desktop\Project\AP-SQL-Assistant-V12.0\
-├── dist\
-│   ├── ap-sql-assistant-standalone.html   ← double-click this to use it immediately
-│   ├── index.html
-│   ├── favicon.svg
-│   └── assets\
-│       ├── app.js
-│       └── app.css
-├── src\                                     ← full TypeScript source
-├── .github\workflows\deploy.yml              ← GitHub Actions → GitHub Pages
+apsql/
+├── dist/index.html      ← Open this. Fully self-contained.
+├── src/                  ← Full TypeScript source (42 files)
+│   ├── engines/          sqlEngine, crEngine, nlpEngine, validationEngine, errorRectifierEngine,
+│   │                     optimizeEngine, decodeEngine, filterEngine, schemaIntegrityEngine (NEW)
+│   ├── services/         aiService, schemaService (extended), passwordService (NEW)
+│   ├── components/       hamburgerNav (NEW), dataTable (NEW), modal (NEW), + existing pickers/tabs/etc.
+│   └── pages/            schemaEditorPage (NEW), settingsPage (NEW), + existing pages
+├── public/favicon.svg
 ├── package.json / tsconfig.json / vite.config.ts
-└── README.md (this file)
+└── README.md
 ```
 
-## Hosting it on GitHub (public or private repo, e.g. `sk-ap-sql-assistant`)
-
-**Fastest option (no build, no Actions):** commit `dist/ap-sql-assistant-standalone.html` to any repo, then either:
-- Open it directly from the repo via "raw" view / download, or
-- Enable GitHub Pages (**Settings → Pages → Source → "Deploy from a branch"** → `main` → `/dist`) and it will be
-  served at `https://<user-or-org>.github.io/<repo>/ap-sql-assistant-standalone.html`.
-
-**Automated option (rebuilds on every push):**
-1. Push the whole project (including `.github/`) to your repo's `main` branch.
-2. **Settings → Pages → Build and deployment → Source → "GitHub Actions"** (important: not "Deploy from a branch").
-3. The included workflow (`.github/workflows/deploy.yml`) will type-check, build, and publish `dist/` automatically
-   — no personal token or `gh-pages` branch needed, it uses the repo's built-in `GITHUB_TOKEN`.
-4. Works on **both public and private repos** — GitHub Pages via Actions supports private repos too (Pages will be
-   private/restricted-access unless the repo is public).
-
-If you'd rather not touch GitHub Actions/npm at all, the standalone HTML file removes that dependency entirely —
-just host the one file.
-
-## Local development (optional — only needed if you want to edit the source)
+## Rebuilding from source
 
 ```bash
-npm install
-npm run dev        # http://localhost:5173
-npm run build       # tsc --noEmit + vite build → dist/
-npm run preview     # serve the production build at http://localhost:4173
+npm install vite typescript --no-save   # requires npm registry access
+npm run build                            # tsc --noEmit + vite build → dist/
 ```
 
-## What was tested before delivery
+## Demo credentials
 
-| Test | Result |
-|---|---|
-| `tsc -p tsconfig.json --noEmit` | 0 type errors |
-| `vite build` | Clean bundle, single `app.js` + `app.css` |
-| Standalone HTML via `file://` (double-click simulation) | All 7 routes render, 0 console errors, 0 page errors |
-| `dist/` via local HTTP server (GitHub Pages simulation) | All 7 routes render, 0 console errors, 0 page errors |
-| Read Only Query Builder | Table → column → join → filter → sort → limit all produce correct SQL live |
-| Query Builder for CR | DELETE/UPDATE correctly **blocked** with no WHERE, correctly **unblocked** once a filter is added |
-| Error Rectifier | `ORA-00904` error correctly parsed → corrected SQL + plain-language explanation |
-| Theme | Dark/Light/System toggle persists and updates immediately |
-| Schema search | Filters tables/columns correctly (tested exclusion of non-matching tables) |
-| Schema Update password gate | Wrong password blocked with visible error; correct password unlocks |
-| Guided Walkthrough | Spotlight + popup renders and steps through correctly |
-| Mobile (390px viewport) | Hamburger menu appears and layout reflows correctly |
-
-## Demo schema & password
-
-- Embedded schema covers **Purchase Orders, Invoices, Vendors, General Ledger, and Users & Approvals** (8 tables).
-- Update Schema demo password: `apsql-admin`. Download the active schema as JSON/CSV, import a new JSON schema, or
-  reset to default. Everything lives in the browser's `localStorage` — nothing is sent anywhere, ever.
+Operational password: `apsql-admin` (Settings → Security). Change or reset it from the same page.

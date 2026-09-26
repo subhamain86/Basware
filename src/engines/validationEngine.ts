@@ -1,34 +1,35 @@
-import type { ReadOnlyQueryConfig, CrQueryConfig } from '../types';
-
-// validation-engine.ts — schema-aware request validation.
-
-export function validateReadOnly(config: ReadOnlyQueryConfig): string[] {
-  const issues: string[] = [];
-  if (!config.primaryTable) issues.push('Select at least one table to query.');
-  if (config.limit !== null && config.limit <= 0) issues.push('Result limit must be a positive number.');
+import type { ReadOnlyQueryState, CrQueryState, ValidationResult, ValidationIssue } from '../types';
+const DESTRUCTIVE_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'DROP', 'ALTER', 'TRUNCATE', 'GRANT', 'REVOKE', 'CREATE'];
+function stripCommentsAndStrings(sql: string): string {
+  let out = sql.replace(/--.*$/gm, ' ');
+  out = out.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  out = out.replace(/'(?:[^']|'')*'/g, "''");
+  return out;
+}
+export function validateReadOnlySql(sql: string): ValidationResult {
+  const issues: ValidationIssue[] = []; const cleaned = stripCommentsAndStrings(sql).toUpperCase();
+  for (const kw of DESTRUCTIVE_KEYWORDS) { const re = new RegExp(`(^|[^A-Z_])${kw}([^A-Z_]|$)`); if (re.test(cleaned)) issues.push({ severity: 'error', message: `Destructive statement detected: "${kw}" is not permitted in the Read Only Query Builder. Use the Query Builder for CR instead.` }); }
+  if (!/\bSELECT\b/.test(cleaned) && !/\bWITH\b/.test(cleaned)) issues.push({ severity: 'warning', message: 'No SELECT / WITH statement detected yet.' });
+  return { valid: issues.filter((i) => i.severity === 'error').length === 0, issues };
+}
+export function validateReadOnlyState(state: ReadOnlyQueryState): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  if (state.selectedTables.length === 0) issues.push({ severity: 'warning', message: 'Select at least one table, or describe your requirement above.' });
+  if (state.advanced.limit !== null && state.advanced.limit <= 0) issues.push({ severity: 'error', message: 'Result limit must be a positive number.' });
   const aliasSeen = new Set<string>();
-  config.columns.forEach((c) => {
-    if (c.alias) {
-      if (aliasSeen.has(c.alias)) issues.push(`Duplicate alias "${c.alias}" — aliases must be unique.`);
-      aliasSeen.add(c.alias);
-    }
-  });
-  config.filters.forEach((f, idx) => {
-    if (!['IS NULL', 'IS NOT NULL'].includes(f.operator) && f.value.trim() === '') {
-      issues.push(`Filter #${idx + 1} on ${f.table}.${f.column} needs a value.`);
-    }
-  });
+  state.selectedColumns.forEach((c) => { if (c.alias) { if (aliasSeen.has(c.alias)) issues.push({ severity: 'error', message: `Duplicate alias "${c.alias}" — aliases must be unique.` }); aliasSeen.add(c.alias); } });
+  state.filters.forEach((f, idx) => { if (!['IS NULL', 'IS NOT NULL'].includes(f.operator) && f.value.trim() === '') issues.push({ severity: 'error', message: `Filter #${idx + 1} on ${f.table}.${f.column} needs a value.` }); });
   return issues;
 }
-
-export function validateCr(config: CrQueryConfig): string[] {
-  const issues: string[] = [];
-  if (!config.table) issues.push('Select a table for this Change Request.');
-  if (config.queryType !== 'DELETE' && config.values.length === 0) {
-    issues.push('Add at least one column/value pair.');
-  }
-  if ((config.queryType === 'UPDATE' || config.queryType === 'DELETE') && config.filters.length === 0 && !config.confirmNoWhere) {
-    issues.push('A WHERE condition is required — add a filter or explicitly confirm no WHERE condition.');
-  }
+export function validateCrState(state: CrQueryState): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  if (!state.table) issues.push({ severity: 'error', message: 'Select a table for this Change Request.' });
+  if (state.queryType !== 'DELETE' && state.values.length === 0) issues.push({ severity: 'error', message: 'Add at least one column/value pair.' });
+  if ((state.queryType === 'UPDATE' || state.queryType === 'DELETE') && state.filters.length === 0 && !state.confirmNoWhere) issues.push({ severity: 'error', message: 'A WHERE condition is required — add a filter or explicitly confirm no WHERE condition.' });
   return issues;
+}
+export function validateFullReadOnly(state: ReadOnlyQueryState): ValidationResult {
+  const structural = validateReadOnlyState(state); const sqlCheck = validateReadOnlySql(state.generatedSql);
+  const issues = [...structural, ...sqlCheck.issues];
+  return { valid: issues.filter((i) => i.severity === 'error').length === 0, issues };
 }
